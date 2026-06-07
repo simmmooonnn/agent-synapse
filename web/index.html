@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>agent-synapse</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        background: #0e1116; color: #d7dde5;
+      }
+      header {
+        padding: 16px 24px; border-bottom: 1px solid #222a35;
+        display: flex; align-items: baseline; gap: 12px;
+      }
+      header h1 { font-size: 16px; margin: 0; color: #fff; }
+      header .sub { color: #6b7685; font-size: 12px; }
+      .wrap { display: grid; grid-template-columns: 1.6fr 1fr; gap: 0; height: calc(100vh - 58px); }
+      .col { padding: 16px 24px; overflow: auto; }
+      .col + .col { border-left: 1px solid #222a35; }
+      h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #6b7685; margin: 0 0 12px; }
+      .card { background: #161b22; border: 1px solid #222a35; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; }
+      .card .top { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 6px; }
+      .task { color: #fff; font-weight: 600; }
+      .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+      .unread { background: #3a2a00; color: #ffcc66; }
+      .read { background: #14301f; color: #6fd49a; }
+      .meta { color: #6b7685; font-size: 12px; margin-bottom: 6px; }
+      .summary { white-space: pre-wrap; }
+      .ctx { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #222a35; color: #aab4c0; white-space: pre-wrap; }
+      .kv { display: flex; gap: 8px; padding: 8px 0; border-bottom: 1px solid #1b2129; }
+      .kv .k { color: #7aa2f7; min-width: 120px; word-break: break-all; }
+      .kv .v { white-space: pre-wrap; word-break: break-word; }
+      .empty { color: #6b7685; font-style: italic; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>agent-synapse</h1>
+      <span class="sub">shared memory between your agents · auto-refresh 3s</span>
+    </header>
+    <div class="wrap">
+      <div class="col">
+        <h2>Handoffs</h2>
+        <div id="handoffs"></div>
+      </div>
+      <div class="col">
+        <h2>Shared memory</h2>
+        <div id="memory"></div>
+      </div>
+    </div>
+
+    <script>
+      const esc = (s) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+      function renderHandoffs(items) {
+        const el = document.getElementById("handoffs");
+        if (!items.length) { el.innerHTML = '<div class="empty">No handoffs yet.</div>'; return; }
+        el.innerHTML = items.map((h) => {
+          const badge = h.read_at
+            ? '<span class="badge read">read' + (h.read_by ? " · " + esc(h.read_by) : "") + "</span>"
+            : '<span class="badge unread">unread</span>';
+          return (
+            '<div class="card">' +
+              '<div class="top"><span class="task">#' + h.id + " " + esc(h.task) + "</span>" + badge + "</div>" +
+              '<div class="meta">' + (h.from_agent ? "from " + esc(h.from_agent) + " · " : "") + esc(h.created_at) + "</div>" +
+              '<div class="summary">' + esc(h.summary) + "</div>" +
+              (h.context ? '<div class="ctx">' + esc(h.context) + "</div>" : "") +
+            "</div>"
+          );
+        }).join("");
+      }
+
+      function renderMemory(items) {
+        const el = document.getElementById("memory");
+        if (!items.length) { el.innerHTML = '<div class="empty">Shared memory is empty.</div>'; return; }
+        el.innerHTML = items.map((m) =>
+          '<div class="kv"><span class="k">' + esc(m.key) + '</span><span class="v">' + esc(m.value) + "</span></div>"
+        ).join("");
+      }
+
+      async function tick() {
+        try {
+          const r = await fetch("/api/data");
+          const d = await r.json();
+          renderHandoffs(d.handoffs);
+          renderMemory(d.memory);
+        } catch {}
+      }
+      tick();
+      setInterval(tick, 3000);
+    </script>
+  </body>
+</html>

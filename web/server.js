@@ -1,0 +1,39 @@
+// Day-2 read-only dashboard. Serves a single page that shows the handoff
+// timeline and the shared memory pool, reading from the SAME SQLite DB the MCP
+// server writes to. Read-only: it never mutates anything.
+//
+// Run with:  npm run web   (then open http://localhost:4317)
+
+import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import * as store from "../src/store.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PORT = process.env.PORT || 4317;
+
+const server = createServer((req, res) => {
+  if (req.url.startsWith("/api/data")) {
+    const data = {
+      handoffs: store.listHandoffs({ limit: 100 }),
+      memory: store.recall({}),
+    };
+    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify(data));
+    return;
+  }
+
+  try {
+    const html = readFileSync(join(__dirname, "index.html"));
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
+  } catch {
+    res.writeHead(500);
+    res.end("Failed to load UI");
+  }
+});
+
+server.listen(PORT, () => {
+  console.error(`[agent-synapse] dashboard: http://localhost:${PORT}`);
+});
