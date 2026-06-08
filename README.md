@@ -43,7 +43,13 @@ npm install
 
 ## Connect your agents
 
-Use the absolute path to `src/server.js` on your machine.
+**One command:** `npm run connect` auto-configures the agents it finds on this
+machine (Claude Code + Codex) and prints snippets for the rest. Or configure them
+manually below (use the absolute path to `src/server.js` on your machine).
+
+> Each machine keeps its own `data/synapse.db`, so this connects *your* agents to
+> *your* store. To share one store across multiple people/machines you'd need a
+> shared backend — that's team mode (see Roadmap), not built yet.
 
 ### Claude Code
 Add to your project's `.mcp.json` (or run `claude mcp add`):
