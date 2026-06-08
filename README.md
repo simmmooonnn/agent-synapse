@@ -156,6 +156,17 @@ a handoff is auto-picked-up it's marked read, so it won't be injected again. (Th
 is Claude Code-specific; for other agents, just tell them to call `read_handoff` at the
 start of a task.)
 
+## Storage backend (paving the way for team mode)
+
+Storage lives behind one facade (`src/store.js`) with swappable backends, so the
+MCP tools never change:
+
+- `sqlite` (default) — a local file at `data/synapse.db`. Single user, this machine.
+- `remote` — a cloud API client (`src/backends/remote.js`): the seam for sharing one
+  store across people/machines. The server isn't built yet; the client and the API
+  contract are scaffolded. Activate later with `AGENT_SYNAPSE_BACKEND=remote` plus
+  `AGENT_SYNAPSE_REMOTE_URL`, `AGENT_SYNAPSE_TOKEN`, `AGENT_SYNAPSE_WORKSPACE`.
+
 ## Roadmap
 
 - **v0:** handoff + shared memory between your own agents. ✅

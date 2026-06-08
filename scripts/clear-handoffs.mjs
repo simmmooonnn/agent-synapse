@@ -9,5 +9,5 @@
 import * as store from "../src/store.js";
 
 const project = process.argv[2] || null;
-const n = store.clearHandoffs({ project });
+const n = await store.clearHandoffs({ project });
 console.log(`Deleted ${n} handoff(s)${project ? ` in project "${project}"` : " (all projects)"}.`);

@@ -13,10 +13,10 @@ import * as store from "../src/store.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 4317;
 
-const server = createServer((req, res) => {
+const server = createServer(async (req, res) => {
   if (req.method === "DELETE" && req.url.startsWith("/api/handoff/")) {
     const id = parseInt(req.url.split("/").pop(), 10);
-    const ok = Number.isInteger(id) && store.deleteHandoff(id);
+    const ok = Number.isInteger(id) ? await store.deleteHandoff(id) : false;
     res.writeHead(ok ? 200 : 404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ ok }));
     return;
@@ -25,10 +25,10 @@ const server = createServer((req, res) => {
   if (req.method === "POST" && req.url.startsWith("/api/autopickup")) {
     let body = "";
     req.on("data", (c) => (body += c));
-    req.on("end", () => {
+    req.on("end", async () => {
       try {
         const { enabled } = JSON.parse(body || "{}");
-        store.setAutoPickup(!!enabled, null);
+        await store.setAutoPickup(!!enabled, null);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true, auto_pickup: !!enabled }));
       } catch {
@@ -41,9 +41,9 @@ const server = createServer((req, res) => {
 
   if (req.url.startsWith("/api/data")) {
     const data = {
-      handoffs: store.listHandoffs({ limit: 100 }),
-      memory: store.recall({}),
-      auto_pickup: store.getSetting("auto_pickup") === "on",
+      handoffs: await store.listHandoffs({ limit: 100 }),
+      memory: await store.recall({}),
+      auto_pickup: (await store.getSetting("auto_pickup")) === "on",
     };
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify(data));

@@ -9,7 +9,7 @@ import { basename } from "node:path";
 import * as store from "../src/store.js";
 
 const projName = (p) => (p ? basename(p) : "(none)");
-const rows = store.listHandoffs({ limit: 10 }); // all projects
+const rows = await store.listHandoffs({ limit: 10 }); // all projects
 
 console.log("=== Recent handoffs (all projects) ===");
 if (rows.length === 0) {
@@ -22,7 +22,7 @@ if (rows.length === 0) {
   }
 }
 
-const mem = store.recall({});
+const mem = await store.recall({});
 console.log("\n=== Shared memory ===");
 if (mem.length === 0) {
   console.log("  (empty)");

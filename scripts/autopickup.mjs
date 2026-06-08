@@ -12,10 +12,10 @@ import * as store from "../src/store.js";
 const arg = (process.argv[2] || "").toLowerCase();
 
 if (arg === "on" || arg === "off") {
-  store.setAutoPickup(arg === "on", null);
+  await store.setAutoPickup(arg === "on", null);
   console.log(`Auto-pickup (global) is now ${arg.toUpperCase()}.`);
 } else {
-  const state = (store.getSetting("auto_pickup") || "off").toUpperCase();
+  const state = ((await store.getSetting("auto_pickup")) || "off").toUpperCase();
   console.log(`Auto-pickup (global): ${state}`);
   console.log("Usage: npm run autopickup on   |   npm run autopickup off");
 }

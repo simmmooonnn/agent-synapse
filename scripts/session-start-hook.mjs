@@ -14,10 +14,10 @@ try {
   const store = await import("../src/store.js");
   const project = store.currentProject();
 
-  if (store.isAutoPickupOn(project)) {
-    const h = store.latestUnreadHandoff(project);
+  if (await store.isAutoPickupOn(project)) {
+    const h = await store.latestUnreadHandoff(project);
     if (h) {
-      store.markRead(h.id, "auto-pickup");
+      await store.markRead(h.id, "auto-pickup");
       const lines = [
         `[agent-synapse] Auto-pickup: another agent left a handoff for this project. Continue from where it left off.`,
         ``,

@@ -52,7 +52,7 @@ export function registerTools(server) {
     },
     async ({ task, summary, context, from_agent, project }) => {
       const proj = project ?? store.currentProject();
-      const r = store.writeHandoff({ task, summary, context, from_agent, project: proj });
+      const r = await store.writeHandoff({ task, summary, context, from_agent, project: proj });
       return text(`Saved handoff #${r.id} for task "${r.task}" in project "${projName(proj)}".`);
     }
   );
@@ -77,7 +77,7 @@ export function registerTools(server) {
     },
     async ({ id, task, as_agent, all_projects, project }) => {
       const proj = id != null ? null : all_projects ? null : project ?? store.currentProject();
-      const h = store.readHandoff({ id, task, as_agent, project: proj });
+      const h = await store.readHandoff({ id, task, as_agent, project: proj });
       if (!h) {
         if (id != null) return text(`No handoff with id ${id}.`);
         const scope = all_projects ? "any project" : `project "${projName(proj)}"`;
@@ -104,7 +104,7 @@ export function registerTools(server) {
     },
     async ({ limit, all_projects, project }) => {
       const proj = all_projects ? null : project ?? store.currentProject();
-      const rows = store.listHandoffs({ limit: limit ?? 20, project: proj });
+      const rows = await store.listHandoffs({ limit: limit ?? 20, project: proj });
       if (rows.length === 0) {
         return text(all_projects ? "No handoffs yet." : `No handoffs yet in project "${projName(proj)}".`);
       }
@@ -132,7 +132,7 @@ export function registerTools(server) {
       },
     },
     async ({ id }) => {
-      const ok = store.deleteHandoff(id);
+      const ok = await store.deleteHandoff(id);
       return text(ok ? `Deleted handoff #${id}.` : `No handoff with id ${id}.`);
     }
   );
@@ -154,7 +154,7 @@ export function registerTools(server) {
     },
     async ({ enabled, this_project_only }) => {
       const proj = this_project_only ? store.currentProject() : null;
-      store.setAutoPickup(enabled, proj);
+      await store.setAutoPickup(enabled, proj);
       const scope = proj ? `project "${projName(proj)}"` : "all projects (global)";
       return text(`Auto-pickup turned ${enabled ? "ON" : "OFF"} for ${scope}.`);
     }
@@ -176,7 +176,7 @@ export function registerTools(server) {
       },
     },
     async ({ key, value, agent }) => {
-      const r = store.remember({ key, value, agent });
+      const r = await store.remember({ key, value, agent });
       return text(`Remembered "${r.key}" at ${r.updated_at}.`);
     }
   );
@@ -191,7 +191,7 @@ export function registerTools(server) {
       },
     },
     async ({ key }) => {
-      const r = store.recall({ key });
+      const r = await store.recall({ key });
       if (key) {
         if (!r) return text(`Nothing stored under "${key}".`);
         return text(`${r.key} = ${r.value}\n(updated ${r.updated_at}${r.updated_by ? ` by ${r.updated_by}` : ""})`);
