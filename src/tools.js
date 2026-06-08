@@ -63,21 +63,23 @@ export function registerTools(server) {
       title: "Read Handoff",
       description:
         "Call this at the START of a task to pick up context another agent " +
-        "handed off FOR THIS PROJECT. Returns the most recent handoff in the " +
-        "current project (optionally filtered by task label). Use it so you " +
-        "continue where the other agent left off instead of starting cold. Set " +
-        "all_projects:true only if you explicitly want handoffs from other projects.",
+        "handed off FOR THIS PROJECT. With no arguments it returns the most " +
+        "recent handoff in the current project. Pass `id` to read a specific " +
+        "handoff (get ids from list_handoffs), `task` to filter by label, or " +
+        "all_projects:true to look beyond the current project.",
       inputSchema: {
+        id: z.number().int().positive().optional().describe("Read this specific handoff by its #id (from list_handoffs). Ignores project/task scoping."),
         task: z.string().optional().describe("Optional task label to fetch a specific handoff. Omit to get the most recent one in this project."),
         as_agent: z.string().optional().describe("Who is reading, e.g. 'codex'. Recorded so the dashboard shows the handoff was picked up."),
         all_projects: z.boolean().optional().describe("Search across all projects instead of just the current one. Default false."),
         project: z.string().optional().describe("Read from a specific project instead of the current one."),
       },
     },
-    async ({ task, as_agent, all_projects, project }) => {
-      const proj = all_projects ? null : project ?? store.currentProject();
-      const h = store.readHandoff({ task, as_agent, project: proj });
+    async ({ id, task, as_agent, all_projects, project }) => {
+      const proj = id != null ? null : all_projects ? null : project ?? store.currentProject();
+      const h = store.readHandoff({ id, task, as_agent, project: proj });
       if (!h) {
+        if (id != null) return text(`No handoff with id ${id}.`);
         const scope = all_projects ? "any project" : `project "${projName(proj)}"`;
         return text(task ? `No handoff found for task "${task}" in ${scope}.` : `No handoffs yet in ${scope}.`);
       }
@@ -92,7 +94,8 @@ export function registerTools(server) {
       description:
         "List recent handoffs (newest first) for the current project to see " +
         "what work has been passed around and what is waiting to be picked up. " +
-        "Set all_projects:true to list across every project.",
+        "Each line starts with the #id you can pass to read_handoff or " +
+        "delete_handoff. Set all_projects:true to list across every project.",
       inputSchema: {
         limit: z.number().int().positive().max(100).optional().describe("How many to return (default 20)."),
         all_projects: z.boolean().optional().describe("List across all projects instead of just the current one. Default false."),
@@ -113,6 +116,24 @@ export function registerTools(server) {
         })
         .join("\n");
       return text(out);
+    }
+  );
+
+  server.registerTool(
+    "delete_handoff",
+    {
+      title: "Delete Handoff",
+      description:
+        "Delete a specific handoff by its #id (get ids from list_handoffs). Use " +
+        "when a handoff is done with, was wrong, or is just clutter. Deletes one " +
+        "handoff at a time on purpose, so nothing is removed by accident.",
+      inputSchema: {
+        id: z.number().int().positive().describe("The #id of the handoff to delete."),
+      },
+    },
+    async ({ id }) => {
+      const ok = store.deleteHandoff(id);
+      return text(ok ? `Deleted handoff #${id}.` : `No handoff with id ${id}.`);
     }
   );
 

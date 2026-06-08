@@ -9,7 +9,10 @@
   "scripts": {
     "start": "node src/server.js",
     "web": "node web/server.js",
-    "handoffs": "node scripts/show-handoffs.mjs"
+    "handoffs": "node scripts/show-handoffs.mjs",
+    "config": "node scripts/print-config.mjs",
+    "clear": "node scripts/clear-handoffs.mjs",
+    "test": "node scripts/smoke-test.mjs"
   },
   "engines": {
     "node": ">=22.5.0"

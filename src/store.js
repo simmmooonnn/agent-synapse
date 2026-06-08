@@ -76,20 +76,29 @@ export function writeHandoff({ task, summary, context = null, from_agent = null,
   return { id: Number(info.lastInsertRowid), task, project, created_at };
 }
 
-// Returns the most recent handoff and marks it read. Scoped to `project` unless
-// project is null (then it searches across all projects).
-export function readHandoff({ task = null, as_agent = null, project = null } = {}) {
-  const where = [];
-  const params = [];
-  if (project !== null) { where.push("project = ?"); params.push(project); }
-  if (task) { where.push("task = ?"); params.push(task); }
-  const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
-
-  const row = db.prepare(`SELECT * FROM handoffs ${clause} ORDER BY id DESC LIMIT 1`).get(...params);
+// Returns one handoff and marks it read. Priority:
+//   - by explicit `id` (ignores project/task scoping)
+//   - else most recent matching `task` / `project`
+export function readHandoff({ id = null, task = null, as_agent = null, project = null } = {}) {
+  let row;
+  if (id != null) {
+    row = db.prepare(`SELECT * FROM handoffs WHERE id = ?`).get(id);
+  } else {
+    const where = [];
+    const params = [];
+    if (project !== null) { where.push("project = ?"); params.push(project); }
+    if (task) { where.push("task = ?"); params.push(task); }
+    const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    row = db.prepare(`SELECT * FROM handoffs ${clause} ORDER BY id DESC LIMIT 1`).get(...params);
+  }
   if (!row) return null;
 
   db.prepare(`UPDATE handoffs SET read_at = ?, read_by = ? WHERE id = ?`).run(now(), as_agent, row.id);
   return row;
+}
+
+export function getHandoff(id) {
+  return db.prepare(`SELECT * FROM handoffs WHERE id = ?`).get(id) || null;
 }
 
 export function listHandoffs({ limit = 20, project = null } = {}) {
@@ -107,6 +116,20 @@ export function listHandoffs({ limit = 20, project = null } = {}) {
        FROM handoffs ORDER BY id DESC LIMIT ?`
     )
     .all(limit);
+}
+
+// Delete a single handoff by id. Returns true if a row was removed.
+export function deleteHandoff(id) {
+  return db.prepare(`DELETE FROM handoffs WHERE id = ?`).run(id).changes > 0;
+}
+
+// Bulk delete. project=null clears EVERYTHING; a project string clears just that
+// project. Returns the number of rows removed.
+export function clearHandoffs({ project = null } = {}) {
+  if (project !== null) {
+    return db.prepare(`DELETE FROM handoffs WHERE project = ?`).run(project).changes;
+  }
+  return db.prepare(`DELETE FROM handoffs`).run().changes;
 }
 
 // --- Memory: a shared key/value scratchpad, global across all projects ---

@@ -25,6 +25,9 @@
       .card .top { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 6px; }
       .task { color: #fff; font-weight: 600; }
       .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+      .del { background: none; border: none; color: #6b7685; cursor: pointer; font-size: 14px; padding: 0 4px; line-height: 1; }
+      .del:hover { color: #ff6b6b; }
+      .top .right { display: flex; align-items: center; gap: 6px; }
       .unread { background: #3a2a00; color: #ffcc66; }
       .read { background: #14301f; color: #6fd49a; }
       .meta { color: #6b7685; font-size: 12px; margin-bottom: 6px; }
@@ -66,7 +69,8 @@
             : '<span class="badge unread">unread</span>';
           return (
             '<div class="card">' +
-              '<div class="top"><span class="task">#' + h.id + " " + esc(h.task) + "</span>" + badge + "</div>" +
+              '<div class="top"><span class="task">#' + h.id + " " + esc(h.task) + "</span>" +
+                '<span class="right">' + badge + '<button class="del" title="Delete" onclick="del(' + h.id + ')">✕</button></span></div>' +
               '<div class="meta"><span class="proj">' + esc(projName(h.project)) + "</span>" + (h.from_agent ? "from " + esc(h.from_agent) + " · " : "") + esc(h.created_at) + "</div>" +
               '<div class="summary">' + esc(h.summary) + "</div>" +
               (h.context ? '<div class="ctx">' + esc(h.context) + "</div>" : "") +
@@ -81,6 +85,12 @@
         el.innerHTML = items.map((m) =>
           '<div class="kv"><span class="k">' + esc(m.key) + '</span><span class="v">' + esc(m.value) + "</span></div>"
         ).join("");
+      }
+
+      async function del(id) {
+        if (!confirm("Delete handoff #" + id + "?")) return;
+        await fetch("/api/handoff/" + id, { method: "DELETE" });
+        tick();
       }
 
       async function tick() {

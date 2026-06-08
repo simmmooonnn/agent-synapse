@@ -68,6 +68,10 @@ command = "node"
 args = ["E:\\Work_Startup\\Work_Agent\\agent-synapse\\src\\server.js"]
 ```
 
+### Any other agent
+Any MCP-capable agent (Cursor, Cline, Windsurf, Zed, Gemini CLI, …) connects the
+same way — run `npm run config` to print ready-to-paste config for each.
+
 Both agents now share the same memory. Tip: tell agent B "read the handoff first"
 at the start of a task so it picks up where A left off.
 
@@ -95,8 +99,9 @@ all projects — use it for durable, cross-cutting facts (preferences, style).
 | Tool | What it does |
 |------|--------------|
 | `write_handoff` | Save a summary + context for another agent to continue. |
-| `read_handoff`  | Pick up the most recent handoff (optionally by task). |
-| `list_handoffs` | See recent handoffs and whether they were picked up. |
+| `read_handoff`  | Pick up a handoff — most recent, by `task`, or a specific `id`. |
+| `list_handoffs` | See recent handoffs (each line starts with its `#id`) and whether they were picked up. |
+| `delete_handoff`| Remove one handoff by its `#id`. |
 | `remember`      | Write a value to the shared key/value memory. |
 | `recall`        | Read from the shared memory (one key, or list all). |
 
@@ -106,12 +111,18 @@ all projects — use it for durable, cross-cutting facts (preferences, style).
 npm run web      # http://localhost:4317
 ```
 
-A read-only view of the handoff timeline and shared memory pool.
+Shows the handoff timeline (with project tags) and shared memory pool. Hover a
+handoff and click ✕ to delete it.
+
+## Managing handoffs
+
+- Delete one: `delete_handoff` tool with its `#id`, or the ✕ button in the dashboard.
+- Bulk clear: `npm run clear` (all) or `npm run clear -- "project-name"` (one project).
 
 ## Roadmap
 
 - **v0:** handoff + shared memory between your own agents. ✅
-- **v1:** project isolation for handoffs. ✅ — next: auto-pickup, richer visibility.
+- **v1:** project isolation, read/delete by id, connect-any-agent config. ✅ — next: auto-pickup, richer visibility.
 - **v2:** active orchestration — auto-trigger B when A hands off, per-agent cost tracking.
 - **v3+:** team mode (shared memory across people), permissions, audit, cost governance.
 

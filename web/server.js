@@ -14,6 +14,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 4317;
 
 const server = createServer((req, res) => {
+  if (req.method === "DELETE" && req.url.startsWith("/api/handoff/")) {
+    const id = parseInt(req.url.split("/").pop(), 10);
+    const ok = Number.isInteger(id) && store.deleteHandoff(id);
+    res.writeHead(ok ? 200 : 404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok }));
+    return;
+  }
+
   if (req.url.startsWith("/api/data")) {
     const data = {
       handoffs: store.listHandoffs({ limit: 100 }),

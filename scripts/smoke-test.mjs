@@ -63,6 +63,18 @@ console.log("\n--- all_projects:true sees both ---");
 const all = await a.call("list_handoffs", { all_projects: true });
 check(all.includes("featureA") && all.includes("featureB"), "all_projects shows A and B");
 
+console.log("\n--- read a specific handoff by id ---");
+const wResp = await a.call("write_handoff", { task: "todelete", summary: "temporary handoff" });
+const newId = parseInt(wResp.match(/#(\d+)/)[1], 10);
+const byId = await a.call("read_handoff", { id: newId });
+check(byId.includes("todelete"), `read_handoff by id #${newId} returns that handoff`);
+
+console.log("\n--- delete a handoff by id ---");
+const delResp = await a.call("delete_handoff", { id: newId });
+check(delResp.includes("Deleted"), `delete_handoff removes #${newId}`);
+const afterDel = await a.call("read_handoff", { id: newId });
+check(afterDel.includes("No handoff with id"), "deleted handoff is gone");
+
 console.log("\n--- memory stays global across projects ---");
 await a.call("remember", { key: "smoke.shared", value: "visible everywhere", agent: "claude-code" });
 const bRecall = await b.call("recall", { key: "smoke.shared" });
