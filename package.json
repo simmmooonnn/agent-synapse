@@ -12,6 +12,7 @@
     "handoffs": "node scripts/show-handoffs.mjs",
     "config": "node scripts/print-config.mjs",
     "clear": "node scripts/clear-handoffs.mjs",
+    "autopickup": "node scripts/autopickup.mjs",
     "test": "node scripts/smoke-test.mjs"
   },
   "engines": {

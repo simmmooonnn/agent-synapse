@@ -17,6 +17,7 @@
       }
       header h1 { font-size: 16px; margin: 0; color: #fff; }
       header .sub { color: #6b7685; font-size: 12px; }
+      .toggle { margin-left: auto; color: #aab4c0; font-size: 12px; display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
       .wrap { display: grid; grid-template-columns: 1.6fr 1fr; gap: 0; height: calc(100vh - 58px); }
       .col { padding: 16px 24px; overflow: auto; }
       .col + .col { border-left: 1px solid #222a35; }
@@ -44,6 +45,7 @@
     <header>
       <h1>agent-synapse</h1>
       <span class="sub">shared memory between your agents · auto-refresh 3s</span>
+      <label class="toggle"><input type="checkbox" id="autopickup" onchange="setAuto(this.checked)" /> auto-pickup</label>
     </header>
     <div class="wrap">
       <div class="col">
@@ -87,6 +89,14 @@
         ).join("");
       }
 
+      async function setAuto(on) {
+        await fetch("/api/autopickup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: on }),
+        });
+      }
+
       async function del(id) {
         if (!confirm("Delete handoff #" + id + "?")) return;
         await fetch("/api/handoff/" + id, { method: "DELETE" });
@@ -99,6 +109,8 @@
           const d = await r.json();
           renderHandoffs(d.handoffs);
           renderMemory(d.memory);
+          const cb = document.getElementById("autopickup");
+          if (cb && document.activeElement !== cb) cb.checked = !!d.auto_pickup;
         } catch {}
       }
       tick();

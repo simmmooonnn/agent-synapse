@@ -138,6 +138,29 @@ export function registerTools(server) {
   );
 
   server.registerTool(
+    "set_auto_pickup",
+    {
+      title: "Set Auto-Pickup",
+      description:
+        "Turn auto-pickup on or off. When ON, a new agent session automatically " +
+        "receives the latest unread handoff for the project at startup (via the " +
+        "Claude Code SessionStart hook) — you don't have to ask it to read the " +
+        "handoff. This sets the global switch by default; pass this_project_only:" +
+        "true to set it for the current project only.",
+      inputSchema: {
+        enabled: z.boolean().describe("true to turn auto-pickup on, false to turn it off."),
+        this_project_only: z.boolean().optional().describe("Apply only to the current project instead of globally. Default false (global)."),
+      },
+    },
+    async ({ enabled, this_project_only }) => {
+      const proj = this_project_only ? store.currentProject() : null;
+      store.setAutoPickup(enabled, proj);
+      const scope = proj ? `project "${projName(proj)}"` : "all projects (global)";
+      return text(`Auto-pickup turned ${enabled ? "ON" : "OFF"} for ${scope}.`);
+    }
+  );
+
+  server.registerTool(
     "remember",
     {
       title: "Remember",

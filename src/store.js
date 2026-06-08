@@ -44,6 +44,13 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+  );
+`);
+
 // --- Migration: add the project column to DBs created before v1 ---
 function ensureColumn(table, column, type) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -154,4 +161,47 @@ export function recall({ key = null } = {}) {
   return db
     .prepare(`SELECT key, value, updated_at, updated_by FROM memory ORDER BY updated_at DESC`)
     .all();
+}
+
+// --- Settings + auto-pickup (v2) ---
+
+export function getSetting(key) {
+  const r = db.prepare(`SELECT value FROM settings WHERE key = ?`).get(key);
+  return r ? r.value : null;
+}
+
+export function setSetting(key, value) {
+  db.prepare(
+    `INSERT INTO settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+  ).run(key, value);
+}
+
+const autoKey = (project) => (project ? `auto_pickup:${project}` : "auto_pickup");
+
+// On if there is a per-project override; otherwise falls back to the global
+// setting; otherwise off.
+export function isAutoPickupOn(project = null) {
+  if (project) {
+    const v = getSetting(autoKey(project));
+    if (v !== null) return v === "on";
+  }
+  return getSetting("auto_pickup") === "on";
+}
+
+export function setAutoPickup(enabled, project = null) {
+  setSetting(autoKey(project), enabled ? "on" : "off");
+}
+
+// Most recent UNREAD handoff for a project — what auto-pickup surfaces.
+export function latestUnreadHandoff(project) {
+  return (
+    db
+      .prepare(`SELECT * FROM handoffs WHERE project = ? AND read_at IS NULL ORDER BY id DESC LIMIT 1`)
+      .get(project) || null
+  );
+}
+
+export function markRead(id, by = "auto-pickup") {
+  db.prepare(`UPDATE handoffs SET read_at = ?, read_by = ? WHERE id = ?`).run(now(), by, id);
 }

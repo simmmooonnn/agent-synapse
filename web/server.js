@@ -22,10 +22,28 @@ const server = createServer((req, res) => {
     return;
   }
 
+  if (req.method === "POST" && req.url.startsWith("/api/autopickup")) {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      try {
+        const { enabled } = JSON.parse(body || "{}");
+        store.setAutoPickup(!!enabled, null);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, auto_pickup: !!enabled }));
+      } catch {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false }));
+      }
+    });
+    return;
+  }
+
   if (req.url.startsWith("/api/data")) {
     const data = {
       handoffs: store.listHandoffs({ limit: 100 }),
       memory: store.recall({}),
+      auto_pickup: store.getSetting("auto_pickup") === "on",
     };
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify(data));
