@@ -28,6 +28,7 @@
       .unread { background: #3a2a00; color: #ffcc66; }
       .read { background: #14301f; color: #6fd49a; }
       .meta { color: #6b7685; font-size: 12px; margin-bottom: 6px; }
+      .proj { background: #1b2740; color: #7aa2f7; padding: 1px 7px; border-radius: 4px; margin-right: 6px; }
       .summary { white-space: pre-wrap; }
       .ctx { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #222a35; color: #aab4c0; white-space: pre-wrap; }
       .kv { display: flex; gap: 8px; padding: 8px 0; border-bottom: 1px solid #1b2129; }
@@ -54,6 +55,7 @@
 
     <script>
       const esc = (s) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+      const projName = (p) => (p ? p.split(/[\\/]/).pop() : "(none)");
 
       function renderHandoffs(items) {
         const el = document.getElementById("handoffs");
@@ -65,7 +67,7 @@
           return (
             '<div class="card">' +
               '<div class="top"><span class="task">#' + h.id + " " + esc(h.task) + "</span>" + badge + "</div>" +
-              '<div class="meta">' + (h.from_agent ? "from " + esc(h.from_agent) + " · " : "") + esc(h.created_at) + "</div>" +
+              '<div class="meta"><span class="proj">' + esc(projName(h.project)) + "</span>" + (h.from_agent ? "from " + esc(h.from_agent) + " · " : "") + esc(h.created_at) + "</div>" +
               '<div class="summary">' + esc(h.summary) + "</div>" +
               (h.context ? '<div class="ctx">' + esc(h.context) + "</div>" : "") +
             "</div>"

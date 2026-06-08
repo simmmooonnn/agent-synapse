@@ -24,6 +24,7 @@ db.exec("PRAGMA busy_timeout = 5000;");
 db.exec(`
   CREATE TABLE IF NOT EXISTS handoffs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    project     TEXT,
     task        TEXT NOT NULL,
     summary     TEXT NOT NULL,
     context     TEXT,
@@ -43,48 +44,72 @@ db.exec(`
   );
 `);
 
+// --- Migration: add the project column to DBs created before v1 ---
+function ensureColumn(table, column, type) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
+}
+ensureColumn("handoffs", "project", "TEXT");
+
 const now = () => new Date().toISOString();
 
-// --- Handoffs: A finishes work and leaves a note for B to pick up ---
+// The project a handoff belongs to. Defaults to the directory the agent
+// launched the MCP server from (so handoffs auto-scope to whatever project you
+// are working in). Override per project with AGENT_SYNAPSE_PROJECT.
+export function currentProject() {
+  return process.env.AGENT_SYNAPSE_PROJECT || process.cwd();
+}
 
-export function writeHandoff({ task, summary, context = null, from_agent = null }) {
+// --- Handoffs: A finishes work and leaves a note for B to pick up ---
+// A null `project` argument means "across all projects".
+
+export function writeHandoff({ task, summary, context = null, from_agent = null, project = null }) {
   const created_at = now();
   const info = db
     .prepare(
-      `INSERT INTO handoffs (task, summary, context, from_agent, created_at)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO handoffs (project, task, summary, context, from_agent, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
     )
-    .run(task, summary, context, from_agent, created_at);
-  return { id: Number(info.lastInsertRowid), task, created_at };
+    .run(project, task, summary, context, from_agent, created_at);
+  return { id: Number(info.lastInsertRowid), task, project, created_at };
 }
 
-// Returns the most recent handoff (optionally filtered by task) and marks it as
-// read so the UI can show whether it was picked up.
-export function readHandoff({ task = null, as_agent = null } = {}) {
-  const row = task
-    ? db.prepare(`SELECT * FROM handoffs WHERE task = ? ORDER BY id DESC LIMIT 1`).get(task)
-    : db.prepare(`SELECT * FROM handoffs ORDER BY id DESC LIMIT 1`).get();
+// Returns the most recent handoff and marks it read. Scoped to `project` unless
+// project is null (then it searches across all projects).
+export function readHandoff({ task = null, as_agent = null, project = null } = {}) {
+  const where = [];
+  const params = [];
+  if (project !== null) { where.push("project = ?"); params.push(project); }
+  if (task) { where.push("task = ?"); params.push(task); }
+  const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
+  const row = db.prepare(`SELECT * FROM handoffs ${clause} ORDER BY id DESC LIMIT 1`).get(...params);
   if (!row) return null;
 
-  db.prepare(`UPDATE handoffs SET read_at = ?, read_by = ? WHERE id = ?`).run(
-    now(),
-    as_agent,
-    row.id
-  );
+  db.prepare(`UPDATE handoffs SET read_at = ?, read_by = ? WHERE id = ?`).run(now(), as_agent, row.id);
   return row;
 }
 
-export function listHandoffs({ limit = 20 } = {}) {
+export function listHandoffs({ limit = 20, project = null } = {}) {
+  if (project !== null) {
+    return db
+      .prepare(
+        `SELECT id, project, task, summary, from_agent, created_at, read_at, read_by
+         FROM handoffs WHERE project = ? ORDER BY id DESC LIMIT ?`
+      )
+      .all(project, limit);
+  }
   return db
     .prepare(
-      `SELECT id, task, summary, from_agent, created_at, read_at, read_by
+      `SELECT id, project, task, summary, from_agent, created_at, read_at, read_by
        FROM handoffs ORDER BY id DESC LIMIT ?`
     )
     .all(limit);
 }
 
-// --- Memory: a shared key/value scratchpad any agent can read or write ---
+// --- Memory: a shared key/value scratchpad, global across all projects ---
 
 export function remember({ key, value, agent = null }) {
   const updated_at = now();

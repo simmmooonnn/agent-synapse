@@ -71,6 +71,25 @@ args = ["E:\\Work_Startup\\Work_Agent\\agent-synapse\\src\\server.js"]
 Both agents now share the same memory. Tip: tell agent B "read the handoff first"
 at the start of a task so it picks up where A left off.
 
+## Project isolation (v1)
+
+Handoffs are **scoped to a project** so work from different projects doesn't mix.
+The project is detected automatically from the directory the agent launched the
+server in, so you don't have to tag anything — work in a folder, and handoffs
+auto-scope to it. `read_handoff` / `list_handoffs` default to the current
+project; pass `all_projects: true` to look across everything.
+
+If a particular agent doesn't launch the server from your project directory, set
+the project explicitly in that agent's MCP config:
+
+```toml
+[mcp_servers.agent-synapse.env]
+AGENT_SYNAPSE_PROJECT = "my-project"
+```
+
+The shared **memory** scratchpad (`remember` / `recall`) stays **global** across
+all projects — use it for durable, cross-cutting facts (preferences, style).
+
 ## Tools
 
 | Tool | What it does |
@@ -91,8 +110,8 @@ A read-only view of the handoff timeline and shared memory pool.
 
 ## Roadmap
 
-- **v0 (now):** handoff + shared memory between your own agents.
-- **v1:** broader agent support, richer memory, visibility ("what does each agent know / has done").
+- **v0:** handoff + shared memory between your own agents. ✅
+- **v1:** project isolation for handoffs. ✅ — next: auto-pickup, richer visibility.
 - **v2:** active orchestration — auto-trigger B when A hands off, per-agent cost tracking.
 - **v3+:** team mode (shared memory across people), permissions, audit, cost governance.
 
