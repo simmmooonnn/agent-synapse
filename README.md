@@ -104,13 +104,40 @@ all projects — use it for durable, cross-cutting facts (preferences, style).
 
 | Tool | What it does |
 |------|--------------|
-| `write_handoff` | Save a summary + context for another agent to continue. |
-| `read_handoff`  | Pick up a handoff — most recent, by `task`, or a specific `id`. |
+| `write_handoff` | Save a summary + context for another agent to continue. Pass `reply_to` to chain it onto an earlier handoff. |
+| `read_handoff`  | Pick up a handoff — most recent, by `task`, or a specific `id`. Pass `thread: true` to get the whole reply chain. |
 | `list_handoffs` | See recent handoffs (each line starts with its `#id`) and whether they were picked up. |
+| `search_handoffs` | Find handoffs by keyword across task / summary / context. |
+| `set_handoff_status` | Move a handoff through its lifecycle: `open` → `acked` → `done`. |
+| `handoff_stats` | Per-project rollup: total / unread / open / acked / done. |
 | `delete_handoff`| Remove one handoff by its `#id`. |
 | `set_auto_pickup`| Turn auto-pickup on/off (global, or `this_project_only`). |
-| `remember`      | Write a value to the shared key/value memory. |
-| `recall`        | Read from the shared memory (one key, or list all). |
+| `remember`      | Write a value to the shared key/value memory. Pass `this_project: true` to scope it to the current project. |
+| `recall`        | Read from memory (one key, or list all). `this_project` for project-scoped, `all_projects` to list everything. |
+| `search_memory` | Find memory entries by keyword across keys and values. |
+
+## Finding things: search, threads, status
+
+As handoffs pile up, three things keep them usable:
+
+- **Search** — `search_handoffs` / `search_memory` do a keyword lookup when you
+  don't know the `#id`. Handoff search defaults to the current project
+  (`all_projects: true` to widen); memory search spans global + project-scoped.
+- **Threads** — reply to a handoff with `write_handoff(..., reply_to: <id>)` to
+  link a back-and-forth. `read_handoff(id, thread: true)` returns the whole chain
+  oldest-first, so the next agent gets the full conversation, not just the last note.
+- **Status** — a handoff is `open` when written; `set_handoff_status` moves it to
+  `acked` (someone's on it) or `done` (resolved). This is separate from read/unread
+  — a handoff can be read but still open. `handoff_stats` rolls these up per project
+  so you can see where work is waiting.
+
+## Project-scoped memory
+
+`remember` / `recall` are **global** by default (preferences, style — facts that
+apply everywhere). Pass `this_project: true` to scope an entry to the current
+project instead; the same key can then hold a different value per project. Listing:
+`recall()` shows global, `recall({ this_project: true })` shows this project's,
+`recall({ all_projects: true })` shows everything.
 
 ## Dashboard
 
@@ -118,8 +145,9 @@ all projects — use it for durable, cross-cutting facts (preferences, style).
 npm run web      # http://localhost:4317
 ```
 
-Shows the handoff timeline (with project tags) and shared memory pool. Hover a
-handoff and click ✕ to delete it.
+Shows a per-project stats strip, the handoff timeline (with project tags, status,
+and reply links), and the shared memory pool. Search boxes filter each column;
+status buttons (open / acked / done) and the ✕ delete button act on a handoff inline.
 
 ## Managing handoffs
 
@@ -171,7 +199,8 @@ MCP tools never change:
 
 - **v0:** handoff + shared memory between your own agents. ✅
 - **v1:** project isolation, read/delete by id, connect-any-agent config. ✅ — next: auto-pickup, richer visibility.
-- **v2:** auto-pickup (handoffs auto-injected at session start, toggleable). ✅ — next: per-agent cost tracking.
+- **v2:** auto-pickup (handoffs auto-injected at session start, toggleable). ✅
+- **v2.1:** search, reply threads, handoff status + stats, project-scoped memory. ✅ — next: per-agent cost tracking.
 - **v3+:** team mode (shared memory across people), permissions, audit, cost governance.
 
 The throughline: a vendor-neutral layer that connects fragmented agents so your

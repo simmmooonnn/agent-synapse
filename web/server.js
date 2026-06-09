@@ -22,6 +22,25 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "POST" && req.url.match(/^\/api\/handoff\/\d+\/status$/)) {
+    const id = parseInt(req.url.split("/")[3], 10);
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", async () => {
+      try {
+        const { status } = JSON.parse(body || "{}");
+        const valid = ["open", "acked", "done"].includes(status);
+        const ok = valid && Number.isInteger(id) ? await store.setHandoffStatus(id, status, "dashboard") : false;
+        res.writeHead(ok ? 200 : 400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok }));
+      } catch {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false }));
+      }
+    });
+    return;
+  }
+
   if (req.method === "POST" && req.url.startsWith("/api/autopickup")) {
     let body = "";
     req.on("data", (c) => (body += c));
@@ -42,7 +61,8 @@ const server = createServer(async (req, res) => {
   if (req.url.startsWith("/api/data")) {
     const data = {
       handoffs: await store.listHandoffs({ limit: 100 }),
-      memory: await store.recall({}),
+      memory: await store.recall({ all_projects: true }),
+      stats: await store.stats({}),
       auto_pickup: (await store.getSetting("auto_pickup")) === "on",
     };
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });

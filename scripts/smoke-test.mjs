@@ -13,15 +13,21 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const serverPath = join(here, "..", "src", "server.js");
+
+// Run against a throwaway DB in the OS temp dir, NOT data/synapse.db, so the
+// test never reads or mutates your real handoffs/memory. Cleaned up at the end.
+const TEST_DATA_DIR = mkdtempSync(join(tmpdir(), "agent-synapse-test-"));
 
 async function session(project) {
   const transport = new StdioClientTransport({
     command: "node",
     args: [serverPath],
-    env: { ...process.env, AGENT_SYNAPSE_PROJECT: project },
+    env: { ...process.env, AGENT_SYNAPSE_PROJECT: project, AGENT_SYNAPSE_DATA: TEST_DATA_DIR },
   });
   const client = new Client({ name: "smoke", version: "0.1.0" });
   await client.connect(transport);
@@ -80,8 +86,55 @@ await a.call("remember", { key: "smoke.shared", value: "visible everywhere", age
 const bRecall = await b.call("recall", { key: "smoke.shared" });
 check(bRecall.includes("visible everywhere"), "B recalls memory written by A (global)");
 
+console.log("\n--- project-scoped memory is isolated ---");
+await a.call("remember", { key: "smoke.scoped", value: "only in A", this_project: true });
+const aScoped = await a.call("recall", { key: "smoke.scoped", this_project: true });
+check(aScoped.includes("only in A"), "A recalls its own project-scoped memory");
+const bScoped = await b.call("recall", { key: "smoke.scoped", this_project: true });
+check(bScoped.includes("Nothing stored"), "B does NOT see A's project-scoped memory");
+const bGlobalMiss = await b.call("recall", { key: "smoke.scoped" });
+check(bGlobalMiss.includes("Nothing stored"), "project-scoped memory is not visible as global");
+
+console.log("\n--- search_handoffs finds by keyword ---");
+const searchHit = await a.call("search_handoffs", { query: "featureA" });
+check(searchHit.includes("featureA"), "search finds A's handoff by keyword");
+const searchScoped = await a.call("search_handoffs", { query: "featureB" });
+check(searchScoped.includes("No handoffs matching"), "search is project-scoped by default");
+const searchAll = await a.call("search_handoffs", { query: "featureB", all_projects: true });
+check(searchAll.includes("featureB"), "search all_projects:true finds B's handoff");
+
+console.log("\n--- search_memory finds remembered facts ---");
+const memSearch = await a.call("search_memory", { query: "visible everywhere" });
+check(memSearch.includes("smoke.shared"), "search_memory finds a value substring");
+
+console.log("\n--- threading: reply_to chains handoffs ---");
+const root = await a.call("write_handoff", { task: "thread-root", summary: "first message" });
+const rootId = parseInt(root.match(/#(\d+)/)[1], 10);
+const reply = await a.call("write_handoff", { task: "thread-reply", summary: "second message", reply_to: rootId });
+const replyId = parseInt(reply.match(/#(\d+)/)[1], 10);
+check(reply.includes("reply to #" + rootId), "write_handoff records the reply link");
+const threadRead = await a.call("read_handoff", { id: replyId, thread: true });
+check(threadRead.includes("first message") && threadRead.includes("second message"), "read thread:true returns the whole chain");
+
+console.log("\n--- status lifecycle: open -> acked -> done ---");
+await a.call("set_handoff_status", { id: rootId, status: "acked", by: "codex" });
+const acked = await a.call("read_handoff", { id: rootId });
+check(acked.includes("Status: acked"), "status set to acked");
+await a.call("set_handoff_status", { id: rootId, status: "done" });
+const done = await a.call("read_handoff", { id: rootId });
+check(done.includes("Status: done"), "status set to done");
+const badStatus = await a.call("set_handoff_status", { id: 999999, status: "done" });
+check(badStatus.includes("No handoff with id"), "status on missing id reports not found");
+
+console.log("\n--- handoff_stats rolls up the current project ---");
+const stat = await a.call("handoff_stats", { this_project: true });
+check(stat.includes(A) && stat.includes("total"), "stats reports counts for project A");
+
 await a.client.close();
 await b.client.close();
+
+// Remove the throwaway test DB.
+rmSync(TEST_DATA_DIR, { recursive: true, force: true });
 
 console.log("\n" + (failures === 0 ? "ALL CHECKS PASSED ✓" : `${failures} CHECK(S) FAILED ✗`));
 process.exit(failures === 0 ? 0 : 1);

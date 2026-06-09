@@ -35,6 +35,20 @@
       .proj { background: #1b2740; color: #7aa2f7; padding: 1px 7px; border-radius: 4px; margin-right: 6px; }
       .summary { white-space: pre-wrap; }
       .ctx { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #222a35; color: #aab4c0; white-space: pre-wrap; }
+      .reply { background: #2a2440; color: #c0a8ff; padding: 1px 7px; border-radius: 4px; margin-right: 6px; }
+      .st-open { background: #3a2a00; color: #ffcc66; }
+      .st-acked { background: #102a3a; color: #66c2ff; }
+      .st-done { background: #14301f; color: #6fd49a; }
+      .actions { margin-top: 8px; display: flex; gap: 6px; }
+      .actions button { background: #1b222c; border: 1px solid #2a3340; color: #aab4c0; font: inherit; font-size: 11px; padding: 2px 8px; border-radius: 6px; cursor: pointer; }
+      .actions button:hover { border-color: #3a4656; color: #fff; }
+      .actions button.on { background: #14301f; border-color: #1f5d3a; color: #6fd49a; }
+      .stats { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 24px; border-bottom: 1px solid #222a35; font-size: 12px; color: #aab4c0; }
+      .stat { background: #161b22; border: 1px solid #222a35; border-radius: 6px; padding: 4px 10px; }
+      .stat b { color: #fff; }
+      .stat .n { color: #ffcc66; }
+      .search { width: 100%; margin-bottom: 12px; padding: 7px 10px; background: #0e1116; border: 1px solid #222a35; border-radius: 6px; color: #d7dde5; font: inherit; }
+      .search:focus { outline: none; border-color: #3a4656; }
       .kv { display: flex; gap: 8px; padding: 8px 0; border-bottom: 1px solid #1b2129; }
       .kv .k { color: #7aa2f7; min-width: 120px; word-break: break-all; }
       .kv .v { white-space: pre-wrap; word-break: break-word; }
@@ -47,13 +61,16 @@
       <span class="sub">shared memory between your agents · auto-refresh 3s</span>
       <label class="toggle"><input type="checkbox" id="autopickup" onchange="setAuto(this.checked)" /> auto-pickup</label>
     </header>
+    <div class="stats" id="stats"></div>
     <div class="wrap">
       <div class="col">
         <h2>Handoffs</h2>
+        <input class="search" id="hsearch" placeholder="search handoffs… (task / summary / context)" oninput="render()" />
         <div id="handoffs"></div>
       </div>
       <div class="col">
         <h2>Shared memory</h2>
+        <input class="search" id="msearch" placeholder="search memory… (key / value)" oninput="render()" />
         <div id="memory"></div>
       </div>
     </div>
@@ -62,31 +79,70 @@
       const esc = (s) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
       const projName = (p) => (p ? p.split(/[\\/]/).pop() : "(none)");
 
-      function renderHandoffs(items) {
+      let DATA = { handoffs: [], memory: [], stats: [] };
+
+      function renderStats(rows) {
+        const el = document.getElementById("stats");
+        if (!rows || !rows.length) { el.innerHTML = '<span class="empty">No handoffs yet.</span>'; return; }
+        el.innerHTML = rows.map((s) => {
+          const pending = Number(s.total) - Number(s.done);
+          return '<span class="stat"><b>' + esc(projName(s.project)) + "</b> · " + s.total + " total · " +
+            '<span class="n">' + s.unread + "</span> unread · " + s.open + " open · " + s.acked + " acked · " + s.done + " done · " + pending + " not-done</span>";
+        }).join("");
+      }
+
+      function statusBadge(h) {
+        const st = h.status || "open";
+        return '<span class="badge st-' + st + '">' + st + "</span>";
+      }
+
+      function statusButtons(h) {
+        const st = h.status || "open";
+        return ["open", "acked", "done"].map((s) =>
+          '<button class="' + (st === s ? "on" : "") + '" onclick="setStatus(' + h.id + ",'" + s + "')\">" + s + "</button>"
+        ).join("");
+      }
+
+      function renderHandoffs() {
+        const q = document.getElementById("hsearch").value.trim().toLowerCase();
+        const items = DATA.handoffs.filter((h) => !q ||
+          (h.task + " " + h.summary + " " + (h.context || "")).toLowerCase().includes(q));
         const el = document.getElementById("handoffs");
-        if (!items.length) { el.innerHTML = '<div class="empty">No handoffs yet.</div>'; return; }
+        if (!items.length) { el.innerHTML = '<div class="empty">' + (q ? "No matches." : "No handoffs yet.") + "</div>"; return; }
         el.innerHTML = items.map((h) => {
-          const badge = h.read_at
+          const read = h.read_at
             ? '<span class="badge read">read' + (h.read_by ? " · " + esc(h.read_by) : "") + "</span>"
             : '<span class="badge unread">unread</span>';
+          const reply = h.reply_to ? '<span class="reply">↳ #' + h.reply_to + "</span>" : "";
           return (
             '<div class="card">' +
               '<div class="top"><span class="task">#' + h.id + " " + esc(h.task) + "</span>" +
-                '<span class="right">' + badge + '<button class="del" title="Delete" onclick="del(' + h.id + ')">✕</button></span></div>' +
-              '<div class="meta"><span class="proj">' + esc(projName(h.project)) + "</span>" + (h.from_agent ? "from " + esc(h.from_agent) + " · " : "") + esc(h.created_at) + "</div>" +
+                '<span class="right">' + statusBadge(h) + read + '<button class="del" title="Delete" onclick="del(' + h.id + ')">✕</button></span></div>' +
+              '<div class="meta">' + reply + '<span class="proj">' + esc(projName(h.project)) + "</span>" + (h.from_agent ? "from " + esc(h.from_agent) + " · " : "") + esc(h.created_at) + "</div>" +
               '<div class="summary">' + esc(h.summary) + "</div>" +
               (h.context ? '<div class="ctx">' + esc(h.context) + "</div>" : "") +
+              '<div class="actions">' + statusButtons(h) + "</div>" +
             "</div>"
           );
         }).join("");
       }
 
-      function renderMemory(items) {
+      function renderMemory() {
+        const q = document.getElementById("msearch").value.trim().toLowerCase();
+        const items = DATA.memory.filter((m) => !q ||
+          (m.key + " " + m.value).toLowerCase().includes(q));
         const el = document.getElementById("memory");
-        if (!items.length) { el.innerHTML = '<div class="empty">Shared memory is empty.</div>'; return; }
-        el.innerHTML = items.map((m) =>
-          '<div class="kv"><span class="k">' + esc(m.key) + '</span><span class="v">' + esc(m.value) + "</span></div>"
-        ).join("");
+        if (!items.length) { el.innerHTML = '<div class="empty">' + (q ? "No matches." : "Shared memory is empty.") + "</div>"; return; }
+        el.innerHTML = items.map((m) => {
+          const tag = m.project ? '<span class="proj">' + esc(projName(m.project)) + "</span>" : "";
+          return '<div class="kv"><span class="k">' + tag + esc(m.key) + '</span><span class="v">' + esc(m.value) + "</span></div>";
+        }).join("");
+      }
+
+      function render() {
+        renderStats(DATA.stats);
+        renderHandoffs();
+        renderMemory();
       }
 
       async function setAuto(on) {
@@ -95,6 +151,15 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ enabled: on }),
         });
+      }
+
+      async function setStatus(id, status) {
+        await fetch("/api/handoff/" + id + "/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        });
+        tick();
       }
 
       async function del(id) {
@@ -107,8 +172,8 @@
         try {
           const r = await fetch("/api/data");
           const d = await r.json();
-          renderHandoffs(d.handoffs);
-          renderMemory(d.memory);
+          DATA = { handoffs: d.handoffs || [], memory: d.memory || [], stats: d.stats || [] };
+          render();
           const cb = document.getElementById("autopickup");
           if (cb && document.activeElement !== cb) cb.checked = !!d.auto_pickup;
         } catch {}

@@ -49,6 +49,18 @@ export async function getHandoff(id) {
 export async function listHandoffs(args = {}) {
   return (await call("/handoffs/list", args)).handoffs ?? [];
 }
+export async function searchHandoffs(args = {}) {
+  return (await call("/handoffs/search", args)).handoffs ?? [];
+}
+export async function getThread(id) {
+  return (await call("/handoffs/thread", { id })).handoffs ?? [];
+}
+export async function setHandoffStatus(id, status, by = null) {
+  return (await call("/handoffs/set-status", { id, status, by })).ok === true;
+}
+export async function stats(args = {}) {
+  return (await call("/handoffs/stats", args)).stats ?? [];
+}
 export async function deleteHandoff(id) {
   return (await call("/handoffs/delete", { id })).ok === true;
 }
@@ -63,6 +75,9 @@ export async function remember(args) {
 export async function recall(args = {}) {
   const r = await call("/memory/get", args);
   return args.key ? r.entry ?? null : r.entries ?? [];
+}
+export async function searchMemory(args = {}) {
+  return (await call("/memory/search", args)).entries ?? [];
 }
 
 // --- Settings + auto-pickup ---
