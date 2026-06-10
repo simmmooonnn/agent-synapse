@@ -147,3 +147,7 @@ data/
 *.db
 *.db-wal
 *.db-shm
+
+# agent-synapse team-mode server: per-workspace DBs and auth tokens
+server/data/
+server/tokens.json

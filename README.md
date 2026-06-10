@@ -184,24 +184,56 @@ a handoff is auto-picked-up it's marked read, so it won't be injected again. (Th
 is Claude Code-specific; for other agents, just tell them to call `read_handoff` at the
 start of a task.)
 
-## Storage backend (paving the way for team mode)
+## Storage backend
 
 Storage lives behind one facade (`src/store.js`) with swappable backends, so the
 MCP tools never change:
 
 - `sqlite` (default) — a local file at `data/synapse.db`. Single user, this machine.
-- `remote` — a cloud API client (`src/backends/remote.js`): the seam for sharing one
-  store across people/machines. The server isn't built yet; the client and the API
-  contract are scaffolded. Activate later with `AGENT_SYNAPSE_BACKEND=remote` plus
-  `AGENT_SYNAPSE_REMOTE_URL`, `AGENT_SYNAPSE_TOKEN`, `AGENT_SYNAPSE_WORKSPACE`.
+- `remote` — an HTTP client (`src/backends/remote.js`) that talks to the team-mode
+  server (below) so multiple people/machines share one store.
+
+## Team mode (shared store across people/machines)
+
+Run one server; everyone points their agents at it and shares handoffs + memory.
+Each **workspace** (a team) gets its own isolated store on the server; within a
+workspace, handoffs stay scoped by project exactly as in single-user mode.
+
+**1. Run the server** (on a host everyone can reach):
+
+```bash
+# define who can connect (token:identity pairs), then start it
+AGENT_SYNAPSE_TOKENS="tok_alice:alice,tok_bob:bob" npm run serve   # port 4318
+```
+
+Tokens can also live in `server/tokens.json` (`{ "tok_alice": "alice" }`). With no
+tokens set, the server runs in **open mode** (no auth) — fine for a trusted LAN,
+not for anything exposed. Per-workspace SQLite files live under `server/data/`
+(git-ignored). `GET /health` returns status without auth.
+
+**2. Point each agent at it** via the MCP server's env (in `.mcp.json` /
+`config.toml`):
+
+```
+AGENT_SYNAPSE_BACKEND=remote
+AGENT_SYNAPSE_REMOTE_URL=http://your-host:4318
+AGENT_SYNAPSE_TOKEN=tok_alice
+AGENT_SYNAPSE_WORKSPACE=my-team
+```
+
+That's it — agents on different machines now read and write the same handoffs and
+memory, as long as they share a `WORKSPACE`. Different workspaces never see each
+other's data. `npm run test:team` exercises the whole path (shared visibility,
+workspace isolation, auth) end-to-end.
 
 ## Roadmap
 
 - **v0:** handoff + shared memory between your own agents. ✅
-- **v1:** project isolation, read/delete by id, connect-any-agent config. ✅ — next: auto-pickup, richer visibility.
+- **v1:** project isolation, read/delete by id, connect-any-agent config. ✅
 - **v2:** auto-pickup (handoffs auto-injected at session start, toggleable). ✅
-- **v2.1:** search, reply threads, handoff status + stats, project-scoped memory. ✅ — next: per-agent cost tracking.
-- **v3+:** team mode (shared memory across people), permissions, audit, cost governance.
+- **v2.1:** search, reply threads, handoff status + stats, project-scoped memory. ✅
+- **v3:** team mode — shared store across people/machines via the remote server, with
+  per-workspace isolation and token auth. ✅ — next: per-agent cost tracking, audit log.
 
 The throughline: a vendor-neutral layer that connects fragmented agents so your
 work and memory flow between them.

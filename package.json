@@ -8,13 +8,15 @@
   },
   "scripts": {
     "start": "node src/server.js",
+    "serve": "node server/remote-server.js",
     "web": "node web/server.js",
     "handoffs": "node scripts/show-handoffs.mjs",
     "connect": "node scripts/install.mjs",
     "config": "node scripts/print-config.mjs",
     "clear": "node scripts/clear-handoffs.mjs",
     "autopickup": "node scripts/autopickup.mjs",
-    "test": "node scripts/smoke-test.mjs"
+    "test": "node scripts/smoke-test.mjs && node scripts/team-smoke-test.mjs",
+    "test:team": "node scripts/team-smoke-test.mjs"
   },
   "engines": {
     "node": ">=22.5.0"
