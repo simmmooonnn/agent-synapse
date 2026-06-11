@@ -80,6 +80,11 @@ export async function searchMemory(args = {}) {
   return (await call("/memory/search", args)).entries ?? [];
 }
 
+// --- Activity feed ---
+export async function getActivity(args = {}) {
+  return (await call("/activity/list", args)).activity ?? [];
+}
+
 // --- Settings + auto-pickup ---
 export async function getSetting(key) {
   return (await call("/settings/get", { key })).value ?? null;

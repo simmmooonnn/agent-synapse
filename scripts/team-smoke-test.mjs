@@ -86,6 +86,13 @@ check(thread.json.handoffs.length === 2 && thread.json.handoffs[0].id === id, "t
 const search = await api("/handoffs/search", { query: "replies", project: "projA" }, { token: "tok_bob", workspace: "team1" });
 check(search.json.handoffs.some((h) => h.task === "re: shared task"), "search finds bob's reply");
 
+console.log("\n--- activity feed is shared + recorded across the team ---");
+const feed = await api("/activity/list", { limit: 50 }, { token: "tok_bob", workspace: "team1" });
+check(Array.isArray(feed.json.activity) && feed.json.activity.some((a) => a.action === "handoff.write"), "activity feed records the handoff write");
+check(feed.json.activity.some((a) => a.action === "handoff.status" && a.detail === "done"), "activity feed records the status change");
+const feed2 = await api("/activity/list", {}, { token: "tok_bob", workspace: "team2" });
+check(Array.isArray(feed2.json.activity) && feed2.json.activity.length === 0, "team2's activity feed is isolated");
+
 console.log("\n--- auth is enforced ---");
 const badTok = await api("/handoffs/list", {}, { token: "nope", workspace: "team1" });
 check(badTok.status === 401, "bad token -> 401");

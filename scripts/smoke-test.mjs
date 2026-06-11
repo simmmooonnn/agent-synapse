@@ -130,6 +130,19 @@ console.log("\n--- handoff_stats rolls up the current project ---");
 const stat = await a.call("handoff_stats", { this_project: true });
 check(stat.includes(A) && stat.includes("total"), "stats reports counts for project A");
 
+console.log("\n--- cost tracking flows into stats ---");
+await a.call("write_handoff", { task: "costly", summary: "expensive run", cost: 1.25 });
+const costStat = await a.call("handoff_stats", { this_project: true });
+check(costStat.includes("$1.25"), "reported cost shows up in handoff_stats");
+
+console.log("\n--- recent_activity records what happened ---");
+const act = await a.call("recent_activity", { this_project: true, limit: 50 });
+check(act.includes("wrote handoff") && act.includes("featureA"), "activity logs the handoff write");
+check(act.includes("set status") || act.includes("set status of") || act.includes("→ done"), "activity logs a status change");
+check(act.includes("deleted handoff"), "activity logs the deletion");
+const actByActor = await a.call("recent_activity", { this_project: true, actor: "codex" });
+check(actByActor.includes("codex") && !actByActor.includes("someone"), "activity filters by actor");
+
 await a.client.close();
 await b.client.close();
 

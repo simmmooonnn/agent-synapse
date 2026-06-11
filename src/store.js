@@ -30,6 +30,7 @@ export const clearHandoffs = (...a) => backend.clearHandoffs(...a);
 export const remember = (...a) => backend.remember(...a);
 export const recall = (...a) => backend.recall(...a);
 export const searchMemory = (...a) => backend.searchMemory(...a);
+export const getActivity = (...a) => backend.getActivity(...a);
 export const getSetting = (...a) => backend.getSetting(...a);
 export const setSetting = (...a) => backend.setSetting(...a);
 export const isAutoPickupOn = (...a) => backend.isAutoPickupOn(...a);

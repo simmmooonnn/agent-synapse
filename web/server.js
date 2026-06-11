@@ -63,6 +63,7 @@ const server = createServer(async (req, res) => {
       handoffs: await store.listHandoffs({ limit: 100 }),
       memory: await store.recall({ all_projects: true }),
       stats: await store.stats({}),
+      activity: await store.getActivity({ limit: 50 }),
       auto_pickup: (await store.getSetting("auto_pickup")) === "on",
     };
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });

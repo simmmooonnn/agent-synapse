@@ -47,6 +47,35 @@ function formatMemoryLine(m) {
   return `${scope}${m.key} = ${m.value}`;
 }
 
+// Human-readable verbs for the activity feed.
+const ACTION_VERB = {
+  "handoff.write": "wrote handoff",
+  "handoff.reply": "replied to handoff",
+  "handoff.read": "read handoff",
+  "handoff.status": "set status",
+  "handoff.delete": "deleted handoff",
+  "memory.set": "set memory",
+};
+
+function formatActivityLine(a) {
+  const verb = ACTION_VERB[a.action] || a.action;
+  const who = a.actor || "someone";
+  const target =
+    a.action === "memory.set"
+      ? ` "${a.detail}"`
+      : a.action === "handoff.status"
+        ? ` #${a.target_id} → ${a.detail}`
+        : a.target_id != null
+          ? ` #${a.target_id}${a.detail ? ` "${a.detail}"` : ""}`
+          : "";
+  const proj = a.project ? ` {${projName(a.project)}}` : "";
+  return `${when(a.at)} — ${who} ${verb}${target}${proj}`;
+}
+
+function when(iso) {
+  return (iso || "").replace("T", " ").replace(/\.\d+Z$/, "").slice(0, 16);
+}
+
 export function registerTools(server) {
   server.registerTool(
     "write_handoff",
@@ -66,11 +95,12 @@ export function registerTools(server) {
         from_agent: z.string().optional().describe("Who is handing off, e.g. 'claude-code' or 'codex'."),
         project: z.string().optional().describe("Override the project this handoff belongs to. Omit to use the current project automatically."),
         reply_to: z.number().int().positive().optional().describe("The #id of a handoff this one is replying to. Links them into a thread so the next agent sees the conversation in order."),
+        cost: z.number().nonnegative().optional().describe("Optional: the cost in USD of the work being handed off (e.g. your session's token spend), so the team can see cost per project in handoff_stats."),
       },
     },
-    async ({ task, summary, context, from_agent, project, reply_to }) => {
+    async ({ task, summary, context, from_agent, project, reply_to, cost }) => {
       const proj = project ?? store.currentProject();
-      const r = await store.writeHandoff({ task, summary, context, from_agent, project: proj, reply_to });
+      const r = await store.writeHandoff({ task, summary, context, from_agent, project: proj, reply_to, cost });
       const replyNote = reply_to ? ` (reply to #${reply_to})` : "";
       return text(`Saved handoff #${r.id} for task "${r.task}" in project "${projName(proj)}"${replyNote}.`);
     }
@@ -210,10 +240,38 @@ export function registerTools(server) {
       const out = rows
         .map((s) => {
           const pending = Number(s.total) - Number(s.done);
-          return `${projName(s.project)}: ${s.total} total · ${s.unread} unread · ${s.open} open · ${s.acked} acked · ${s.done} done · ${pending} not-done`;
+          const cost = Number(s.cost) > 0 ? ` · $${Number(s.cost).toFixed(2)}` : "";
+          return `${projName(s.project)}: ${s.total} total · ${s.unread} unread · ${s.open} open · ${s.acked} acked · ${s.done} done · ${pending} not-done${cost}`;
         })
         .join("\n");
       return text(out);
+    }
+  );
+
+  server.registerTool(
+    "recent_activity",
+    {
+      title: "Recent Activity",
+      description:
+        "Show the recent activity feed — an audit log of what agents have been " +
+        "doing: handoffs written, read, status changes, deletions, and memory " +
+        "updates (newest first). Use it to catch up on what changed since you " +
+        "last looked, especially in team mode where others share this store. " +
+        "Defaults to all projects; pass this_project:true to scope to the current " +
+        "one, or actor to filter by who did it.",
+      inputSchema: {
+        limit: z.number().int().positive().max(200).optional().describe("How many entries to return (default 30)."),
+        this_project: z.boolean().optional().describe("Only show activity in the current project. Default false (all projects)."),
+        actor: z.string().optional().describe("Only show activity by this actor, e.g. 'codex'."),
+      },
+    },
+    async ({ limit, this_project, actor }) => {
+      const proj = this_project ? store.currentProject() : null;
+      const rows = await store.getActivity({ limit: limit ?? 30, project: proj, actor: actor ?? null });
+      if (!rows || rows.length === 0) {
+        return text(this_project ? `No activity yet in project "${projName(proj)}".` : "No activity yet.");
+      }
+      return text(rows.map(formatActivityLine).join("\n"));
     }
   );
 

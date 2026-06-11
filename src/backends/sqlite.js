@@ -26,7 +26,7 @@ const DEFAULT_DATA_DIR = process.env.AGENT_SYNAPSE_DATA || join(__dirname, "..",
 const now = () => new Date().toISOString();
 
 const LIST_COLS =
-  "id, project, task, summary, from_agent, created_at, read_at, read_by, reply_to, status";
+  "id, project, task, summary, from_agent, created_at, read_at, read_by, reply_to, status, cost";
 
 const autoKey = (project) => (project ? `auto_pickup:${project}` : "auto_pickup");
 
@@ -77,6 +77,22 @@ export function createSqliteBackend({ dataDir = DEFAULT_DATA_DIR } = {}) {
     );
   `);
 
+  // Audit / activity feed: an append-only log of meaningful actions, so a team
+  // can see who did what, when — and so the dashboard has a live "what's
+  // happening" stream. action is a dotted verb (handoff.write, handoff.read,
+  // handoff.status, handoff.delete, memory.set); target_id / detail give context.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS activity (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      at         TEXT NOT NULL,
+      actor      TEXT,
+      action     TEXT NOT NULL,
+      project    TEXT,
+      target_id  INTEGER,
+      detail     TEXT
+    );
+  `);
+
   // Migration: add columns to DBs created before the feature that introduced them.
   function ensureColumn(table, column, type) {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -89,6 +105,7 @@ export function createSqliteBackend({ dataDir = DEFAULT_DATA_DIR } = {}) {
   ensureColumn("handoffs", "status", "TEXT"); // lifecycle: open | acked | done
   ensureColumn("handoffs", "status_at", "TEXT");
   ensureColumn("handoffs", "status_by", "TEXT");
+  ensureColumn("handoffs", "cost", "REAL"); // optional self-reported cost (USD) of the work being handed off
 
   // Migration: rebuild a pre-existing memory table (PRIMARY KEY(key)) into the
   // project-scoped shape (PRIMARY KEY(key, project)). Existing rows become global
@@ -121,17 +138,46 @@ export function createSqliteBackend({ dataDir = DEFAULT_DATA_DIR } = {}) {
     }
   })();
 
+  // --- Activity log (audit feed) ---
+
+  // Append one entry to the activity feed. Best-effort: a logging failure must
+  // never break the operation it is recording, so it swallows its own errors.
+  function logActivity({ actor = null, action, project = null, target_id = null, detail = null }) {
+    try {
+      db.prepare(
+        `INSERT INTO activity (at, actor, action, project, target_id, detail) VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(now(), actor, action, project, target_id, detail);
+    } catch {
+      /* never let auditing break the real work */
+    }
+  }
+
+  // Recent activity, newest first. Optionally scope to a project or an actor.
+  function getActivity({ limit = 50, project = null, actor = null } = {}) {
+    const where = [];
+    const params = [];
+    if (project !== null) { where.push("project = ?"); params.push(project); }
+    if (actor !== null) { where.push("actor = ?"); params.push(actor); }
+    const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    params.push(limit);
+    return db
+      .prepare(`SELECT id, at, actor, action, project, target_id, detail FROM activity ${clause} ORDER BY id DESC LIMIT ?`)
+      .all(...params);
+  }
+
   // --- Handoffs ---
 
-  function writeHandoff({ task, summary, context = null, from_agent = null, project = null, reply_to = null }) {
+  function writeHandoff({ task, summary, context = null, from_agent = null, project = null, reply_to = null, cost = null }) {
     const created_at = now();
     const info = db
       .prepare(
-        `INSERT INTO handoffs (project, task, summary, context, from_agent, created_at, reply_to, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'open')`
+        `INSERT INTO handoffs (project, task, summary, context, from_agent, created_at, reply_to, status, cost)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)`
       )
-      .run(project, task, summary, context, from_agent, created_at, reply_to);
-    return { id: Number(info.lastInsertRowid), task, project, created_at, reply_to };
+      .run(project, task, summary, context, from_agent, created_at, reply_to, cost);
+    const id = Number(info.lastInsertRowid);
+    logActivity({ actor: from_agent, action: reply_to ? "handoff.reply" : "handoff.write", project, target_id: id, detail: task });
+    return { id, task, project, created_at, reply_to };
   }
 
   function readHandoff({ id = null, task = null, as_agent = null, project = null } = {}) {
@@ -147,7 +193,9 @@ export function createSqliteBackend({ dataDir = DEFAULT_DATA_DIR } = {}) {
       row = db.prepare(`SELECT * FROM handoffs ${clause} ORDER BY id DESC LIMIT 1`).get(...params);
     }
     if (!row) return null;
+    const firstRead = row.read_at == null;
     db.prepare(`UPDATE handoffs SET read_at = ?, read_by = ? WHERE id = ?`).run(now(), as_agent, row.id);
+    if (firstRead) logActivity({ actor: as_agent, action: "handoff.read", project: row.project, target_id: row.id, detail: row.task });
     return row;
   }
 
@@ -198,6 +246,10 @@ export function createSqliteBackend({ dataDir = DEFAULT_DATA_DIR } = {}) {
     const r = db
       .prepare(`UPDATE handoffs SET status = ?, status_at = ?, status_by = ? WHERE id = ?`)
       .run(status, now(), by, id);
+    if (r.changes > 0) {
+      const h = getHandoff(id);
+      logActivity({ actor: by, action: "handoff.status", project: h?.project ?? null, target_id: id, detail: status });
+    }
     return r.changes > 0;
   }
 
@@ -213,7 +265,8 @@ export function createSqliteBackend({ dataDir = DEFAULT_DATA_DIR } = {}) {
            SUM(CASE WHEN read_at IS NULL THEN 1 ELSE 0 END) AS unread,
            SUM(CASE WHEN IFNULL(status,'open') = 'open'  THEN 1 ELSE 0 END) AS open,
            SUM(CASE WHEN status = 'acked' THEN 1 ELSE 0 END) AS acked,
-           SUM(CASE WHEN status = 'done'  THEN 1 ELSE 0 END) AS done
+           SUM(CASE WHEN status = 'done'  THEN 1 ELSE 0 END) AS done,
+           ROUND(SUM(IFNULL(cost, 0)), 4) AS cost
          FROM handoffs ${where}
          GROUP BY project ORDER BY total DESC`
       )
@@ -221,7 +274,10 @@ export function createSqliteBackend({ dataDir = DEFAULT_DATA_DIR } = {}) {
   }
 
   function deleteHandoff(id) {
-    return db.prepare(`DELETE FROM handoffs WHERE id = ?`).run(id).changes > 0;
+    const h = getHandoff(id);
+    const ok = db.prepare(`DELETE FROM handoffs WHERE id = ?`).run(id).changes > 0;
+    if (ok) logActivity({ action: "handoff.delete", project: h?.project ?? null, target_id: id, detail: h?.task ?? null });
+    return ok;
   }
 
   function clearHandoffs({ project = null } = {}) {
@@ -244,6 +300,7 @@ export function createSqliteBackend({ dataDir = DEFAULT_DATA_DIR } = {}) {
          updated_at = excluded.updated_at,
          updated_by = excluded.updated_by`
     ).run(key, proj, value, updated_at, agent);
+    logActivity({ actor: agent, action: "memory.set", project: proj || null, detail: key });
     return { key, project: proj, updated_at };
   }
 
@@ -312,7 +369,10 @@ export function createSqliteBackend({ dataDir = DEFAULT_DATA_DIR } = {}) {
   }
 
   function markRead(id, by = "auto-pickup") {
+    const h = getHandoff(id);
+    const wasUnread = h && h.read_at == null;
     db.prepare(`UPDATE handoffs SET read_at = ?, read_by = ? WHERE id = ?`).run(now(), by, id);
+    if (wasUnread) logActivity({ actor: by, action: "handoff.read", project: h.project, target_id: id, detail: h.task });
   }
 
   return {
@@ -322,6 +382,7 @@ export function createSqliteBackend({ dataDir = DEFAULT_DATA_DIR } = {}) {
     writeHandoff, readHandoff, getHandoff, listHandoffs, searchHandoffs, getThread,
     setHandoffStatus, stats, deleteHandoff, clearHandoffs,
     remember, recall, searchMemory,
+    getActivity,
     getSetting, setSetting, isAutoPickupOn, setAutoPickup, latestUnreadHandoff, markRead,
   };
 }
@@ -344,6 +405,7 @@ export const clearHandoffs = _default.clearHandoffs;
 export const remember = _default.remember;
 export const recall = _default.recall;
 export const searchMemory = _default.searchMemory;
+export const getActivity = _default.getActivity;
 export const getSetting = _default.getSetting;
 export const setSetting = _default.setSetting;
 export const isAutoPickupOn = _default.isAutoPickupOn;

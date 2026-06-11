@@ -149,6 +149,22 @@
       .kv .k { display: flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 12.5px; color: var(--accent); margin-bottom: 4px; word-break: break-all; }
       .kv .v { color: var(--fg); white-space: pre-wrap; word-break: break-word; }
 
+      /* project cost chip */
+      .proj-row .cost { color: var(--done); font-weight: 600; font-family: var(--mono); }
+
+      /* activity feed */
+      .act { display: flex; gap: 9px; padding: 9px 0; border-bottom: 1px solid var(--border-muted); font-size: 12.5px; }
+      .act:last-child { border-bottom: none; }
+      .act .dot { flex: none; margin-top: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+      .act .dot.write { background: var(--accent); } .act .dot.reply { background: var(--done); }
+      .act .dot.read { background: var(--open); } .act .dot.status { background: var(--acked); }
+      .act .dot.delete { background: #cf222e; } .act .dot.memory { background: var(--faint); }
+      .act .ab { min-width: 0; flex: 1; }
+      .act .who { font-weight: 600; color: var(--fg); }
+      .act .verb { color: var(--muted); }
+      .act .tgt { color: var(--fg); }
+      .act .t { color: var(--faint); font-size: 11px; margin-top: 1px; }
+
       .empty { color: var(--muted); padding: 16px; text-align: center; font-size: 13px; }
       ::-webkit-scrollbar { width: 12px; height: 12px; }
       ::-webkit-scrollbar-thumb { background: #d0d7de; border-radius: 8px; border: 3px solid var(--surface); background-clip: padding-box; }
@@ -193,6 +209,10 @@
             <div class="Box-body" id="stats"></div>
           </div>
           <div class="Box">
+            <div class="Box-header"><h2>Activity</h2><span class="count" id="acount"></span></div>
+            <div class="Box-body" id="activity"></div>
+          </div>
+          <div class="Box">
             <div class="Box-header"><h2>Shared memory</h2><span class="count" id="mcount"></span></div>
             <div class="Box-body">
               <div class="search">
@@ -211,8 +231,18 @@
       const projName = (p) => (p ? p.split(/[\\/]/).pop() : "(none)");
       const when = (iso) => (iso || "").replace("T", " ").replace(/\.\d+Z$/, "").slice(0, 16);
 
-      let DATA = { handoffs: [], memory: [], stats: [] };
+      let DATA = { handoffs: [], memory: [], stats: [], activity: [] };
       let statusFilter = "all";
+
+      // activity action -> [dot class, human verb]
+      const ACT = {
+        "handoff.write": ["write", "wrote handoff"],
+        "handoff.reply": ["reply", "replied to"],
+        "handoff.read": ["read", "read handoff"],
+        "handoff.status": ["status", "set status of"],
+        "handoff.delete": ["delete", "deleted handoff"],
+        "memory.set": ["memory", "set memory"],
+      };
 
       // octicons
       const ICON = {
@@ -242,12 +272,33 @@
         el.innerHTML = rows.map((s) =>
           '<div class="proj-row"><span class="pn">' + esc(projName(s.project)) + "</span>" +
             '<span class="nums">' +
+              (Number(s.cost) > 0 ? '<span class="cost" title="total reported cost">$' + Number(s.cost).toFixed(2) + "</span>" : "") +
               (Number(s.unread) > 0 ? '<span class="ur">' + s.unread + " unread</span>" : "") +
               "<span><i class='n-open'></i>" + s.open + "</span>" +
               "<span><i class='n-acked'></i>" + s.acked + "</span>" +
               "<span><i class='n-done'></i>" + s.done + "</span>" +
             "</span></div>"
         ).join("");
+      }
+
+      function renderActivity() {
+        const rows = DATA.activity || [];
+        document.getElementById("acount").textContent = rows.length;
+        const el = document.getElementById("activity");
+        if (!rows.length) { el.innerHTML = '<div class="empty">No activity yet.</div>'; return; }
+        el.innerHTML = rows.map((a) => {
+          const [cls, verb] = ACT[a.action] || ["", a.action];
+          const who = esc(a.actor || "someone");
+          const tgt =
+            a.action === "memory.set" ? ' "' + esc(a.detail) + '"'
+            : a.action === "handoff.status" ? " #" + a.target_id + " → " + esc(a.detail)
+            : a.target_id != null ? " #" + a.target_id + (a.detail ? ' "' + esc(a.detail) + '"' : "")
+            : "";
+          const proj = a.project ? ' <span class="Label proj">' + esc(projName(a.project)) + "</span>" : "";
+          return '<div class="act"><span class="dot ' + cls + '"></span><div class="ab">' +
+            '<div><span class="who">' + who + '</span> <span class="verb">' + esc(verb) + '</span><span class="tgt">' + tgt + "</span>" + proj + "</div>" +
+            '<div class="t">' + esc(when(a.at)) + "</div></div></div>";
+        }).join("");
       }
 
       function statusButtons(h) {
@@ -307,6 +358,7 @@
       function render() {
         renderTabs();
         renderStats(DATA.stats);
+        renderActivity();
         renderHandoffs();
         renderMemory();
       }
@@ -328,7 +380,7 @@
         try {
           const r = await fetch("/api/data");
           const d = await r.json();
-          DATA = { handoffs: d.handoffs || [], memory: d.memory || [], stats: d.stats || [] };
+          DATA = { handoffs: d.handoffs || [], memory: d.memory || [], stats: d.stats || [], activity: d.activity || [] };
           render();
           const cb = document.getElementById("autopickup");
           if (cb && document.activeElement !== cb) { cb.checked = !!d.auto_pickup; document.getElementById("autostate").textContent = d.auto_pickup ? "on" : "off"; }

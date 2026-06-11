@@ -79,6 +79,7 @@ const routes = {
   "/memory/set": (b, x) => b.remember(x),
   "/memory/get": (b, x) => (x.key ? { entry: b.recall(x) } : { entries: b.recall(x) }),
   "/memory/search": (b, x) => ({ entries: b.searchMemory(x) }),
+  "/activity/list": (b, x) => ({ activity: b.getActivity(x) }),
   "/settings/get": (b, x) => ({ value: b.getSetting(x.key) }),
   "/settings/set": (b, x) => { b.setSetting(x.key, x.value); return { ok: true }; },
   "/settings/auto-pickup": (b, x) => ({ enabled: b.isAutoPickupOn(x.project ?? null) }),

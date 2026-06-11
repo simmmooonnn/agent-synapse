@@ -104,12 +104,13 @@ all projects — use it for durable, cross-cutting facts (preferences, style).
 
 | Tool | What it does |
 |------|--------------|
-| `write_handoff` | Save a summary + context for another agent to continue. Pass `reply_to` to chain it onto an earlier handoff. |
+| `write_handoff` | Save a summary + context for another agent to continue. Pass `reply_to` to chain it onto an earlier handoff, or `cost` to report what the work cost. |
 | `read_handoff`  | Pick up a handoff — most recent, by `task`, or a specific `id`. Pass `thread: true` to get the whole reply chain. |
 | `list_handoffs` | See recent handoffs (each line starts with its `#id`) and whether they were picked up. |
 | `search_handoffs` | Find handoffs by keyword across task / summary / context. |
 | `set_handoff_status` | Move a handoff through its lifecycle: `open` → `acked` → `done`. |
-| `handoff_stats` | Per-project rollup: total / unread / open / acked / done. |
+| `handoff_stats` | Per-project rollup: total / unread / open / acked / done, plus total reported cost. |
+| `recent_activity` | Audit feed of what agents did (writes, reads, status changes, deletes, memory sets). `this_project` / `actor` to filter. |
 | `delete_handoff`| Remove one handoff by its `#id`. |
 | `set_auto_pickup`| Turn auto-pickup on/off (global, or `this_project_only`). |
 | `remember`      | Write a value to the shared key/value memory. Pass `this_project: true` to scope it to the current project. |
@@ -139,15 +140,27 @@ project instead; the same key can then hold a different value per project. Listi
 `recall()` shows global, `recall({ this_project: true })` shows this project's,
 `recall({ all_projects: true })` shows everything.
 
+## Activity feed & cost
+
+- **Activity feed** — every meaningful action (handoff written, read, status
+  change, deletion, memory set) is appended to an audit log. `recent_activity`
+  shows it newest-first; pass `this_project:true` or `actor:"codex"` to filter.
+  In team mode this is how you catch up on what teammates did. The feed is part
+  of each workspace's store, so it stays isolated per team.
+- **Cost** — `write_handoff` takes an optional `cost` (USD) so an agent can
+  report what a chunk of work cost (e.g. its token spend). `handoff_stats` and
+  the dashboard roll that up per project, so cost is attributed where it accrued.
+
 ## Dashboard
 
 ```bash
 npm run web      # http://localhost:4317
 ```
 
-Shows a per-project stats strip, the handoff timeline (with project tags, status,
-and reply links), and the shared memory pool. Search boxes filter each column;
-status buttons (open / acked / done) and the ✕ delete button act on a handoff inline.
+Shows a per-project stats strip (with rolled-up cost), a live **Activity** feed,
+the handoff timeline (with project tags, status, and reply links), and the shared
+memory pool. Search boxes filter each column; status buttons (open / acked / done)
+and the ✕ delete button act on a handoff inline.
 
 ## Managing handoffs
 
@@ -233,7 +246,8 @@ workspace isolation, auth) end-to-end.
 - **v2:** auto-pickup (handoffs auto-injected at session start, toggleable). ✅
 - **v2.1:** search, reply threads, handoff status + stats, project-scoped memory. ✅
 - **v3:** team mode — shared store across people/machines via the remote server, with
-  per-workspace isolation and token auth. ✅ — next: per-agent cost tracking, audit log.
+  per-workspace isolation and token auth. ✅
+- **v3.1:** activity feed (audit log) + per-handoff cost tracking, rolled up per project. ✅
 
 The throughline: a vendor-neutral layer that connects fragmented agents so your
 work and memory flow between them.
