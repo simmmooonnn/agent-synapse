@@ -13,7 +13,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -75,11 +76,21 @@ const newId = parseInt(wResp.match(/#(\d+)/)[1], 10);
 const byId = await a.call("read_handoff", { id: newId });
 check(byId.includes("todelete"), `read_handoff by id #${newId} returns that handoff`);
 
-console.log("\n--- delete a handoff by id ---");
+console.log("\n--- soft delete + recycle bin + restore ---");
 const delResp = await a.call("delete_handoff", { id: newId });
-check(delResp.includes("Deleted"), `delete_handoff removes #${newId}`);
+check(delResp.includes("recycle bin"), `delete_handoff moves #${newId} to the recycle bin`);
 const afterDel = await a.call("read_handoff", { id: newId });
-check(afterDel.includes("No handoff with id"), "deleted handoff is gone");
+check(afterDel.includes("No handoff with id"), "soft-deleted handoff is hidden from reads");
+const afterDelList = await a.call("list_handoffs");
+check(!afterDelList.includes("todelete"), "soft-deleted handoff is hidden from list");
+const trash = await a.call("list_trash");
+check(trash.includes("todelete") && trash.includes("#" + newId), "deleted handoff shows in the recycle bin");
+const restored = await a.call("restore_handoff", { id: newId });
+check(restored.includes("Restored"), "restore_handoff brings it back");
+const afterRestore = await a.call("read_handoff", { id: newId });
+check(afterRestore.includes("todelete"), "restored handoff is readable again");
+// put it back in the bin so later counts are unaffected
+await a.call("delete_handoff", { id: newId });
 
 console.log("\n--- memory stays global across projects ---");
 await a.call("remember", { key: "smoke.shared", value: "visible everywhere", agent: "claude-code" });
@@ -142,6 +153,13 @@ check(act.includes("set status") || act.includes("set status of") || act.include
 check(act.includes("deleted handoff"), "activity logs the deletion");
 const actByActor = await a.call("recent_activity", { this_project: true, actor: "codex" });
 check(actByActor.includes("codex") && !actByActor.includes("someone"), "activity filters by actor");
+
+console.log("\n--- backup CLI snapshots the store (isolated temp dir) ---");
+execFileSync("node", [join(here, "backup.mjs")], { env: { ...process.env, AGENT_SYNAPSE_DATA: TEST_DATA_DIR }, stdio: "ignore" });
+const backupsDir = join(TEST_DATA_DIR, "backups");
+const backupFiles = existsSync(backupsDir) ? readdirSync(backupsDir) : [];
+check(backupFiles.some((f) => f.endsWith(".db")), "backup writes a .db snapshot");
+check(backupFiles.some((f) => f.endsWith(".json")), "backup writes a .json export");
 
 await a.client.close();
 await b.client.close();

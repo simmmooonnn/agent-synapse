@@ -67,6 +67,18 @@ export async function deleteHandoff(id) {
 export async function clearHandoffs(args = {}) {
   return (await call("/handoffs/clear", args)).deleted ?? 0;
 }
+export async function restoreHandoff(id) {
+  return (await call("/handoffs/restore", { id })).ok === true;
+}
+export async function listTrash(args = {}) {
+  return (await call("/handoffs/trash", args)).handoffs ?? [];
+}
+export async function purgeHandoff(id) {
+  return (await call("/handoffs/purge", { id })).ok === true;
+}
+export async function emptyTrash() {
+  return (await call("/handoffs/empty-trash", {})).deleted ?? 0;
+}
 
 // --- Memory ---
 export async function remember(args) {

@@ -106,6 +106,7 @@ export function createSqliteBackend({ dataDir = DEFAULT_DATA_DIR } = {}) {
   ensureColumn("handoffs", "status_at", "TEXT");
   ensureColumn("handoffs", "status_by", "TEXT");
   ensureColumn("handoffs", "cost", "REAL"); // optional self-reported cost (USD) of the work being handed off
+  ensureColumn("handoffs", "deleted_at", "TEXT"); // soft-delete: non-null = in the recycle bin
 
   // Migration: rebuild a pre-existing memory table (PRIMARY KEY(key)) into the
   // project-scoped shape (PRIMARY KEY(key, project)). Existing rows become global
@@ -183,14 +184,13 @@ export function createSqliteBackend({ dataDir = DEFAULT_DATA_DIR } = {}) {
   function readHandoff({ id = null, task = null, as_agent = null, project = null } = {}) {
     let row;
     if (id != null) {
-      row = db.prepare(`SELECT * FROM handoffs WHERE id = ?`).get(id);
+      row = db.prepare(`SELECT * FROM handoffs WHERE id = ? AND deleted_at IS NULL`).get(id);
     } else {
-      const where = [];
+      const where = ["deleted_at IS NULL"];
       const params = [];
       if (project !== null) { where.push("project = ?"); params.push(project); }
       if (task) { where.push("task = ?"); params.push(task); }
-      const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
-      row = db.prepare(`SELECT * FROM handoffs ${clause} ORDER BY id DESC LIMIT 1`).get(...params);
+      row = db.prepare(`SELECT * FROM handoffs WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT 1`).get(...params);
     }
     if (!row) return null;
     const firstRead = row.read_at == null;
@@ -199,23 +199,29 @@ export function createSqliteBackend({ dataDir = DEFAULT_DATA_DIR } = {}) {
     return row;
   }
 
+  // Public getHandoff hides recycle-bin rows (a deleted handoff is "gone").
   function getHandoff(id) {
+    return db.prepare(`SELECT * FROM handoffs WHERE id = ? AND deleted_at IS NULL`).get(id) || null;
+  }
+
+  // Raw lookup that DOES see soft-deleted rows — for restore / purge / auditing.
+  function getHandoffRaw(id) {
     return db.prepare(`SELECT * FROM handoffs WHERE id = ?`).get(id) || null;
   }
 
   function listHandoffs({ limit = 20, project = null } = {}) {
     if (project !== null) {
       return db
-        .prepare(`SELECT ${LIST_COLS} FROM handoffs WHERE project = ? ORDER BY id DESC LIMIT ?`)
+        .prepare(`SELECT ${LIST_COLS} FROM handoffs WHERE deleted_at IS NULL AND project = ? ORDER BY id DESC LIMIT ?`)
         .all(project, limit);
     }
-    return db.prepare(`SELECT ${LIST_COLS} FROM handoffs ORDER BY id DESC LIMIT ?`).all(limit);
+    return db.prepare(`SELECT ${LIST_COLS} FROM handoffs WHERE deleted_at IS NULL ORDER BY id DESC LIMIT ?`).all(limit);
   }
 
   // Full-text-ish search over task / summary / context (case-insensitive LIKE).
   function searchHandoffs({ query, project = null, limit = 20 }) {
     const like = `%${query}%`;
-    const where = ["(task LIKE ? OR summary LIKE ? OR IFNULL(context,'') LIKE ?)"];
+    const where = ["deleted_at IS NULL", "(task LIKE ? OR summary LIKE ? OR IFNULL(context,'') LIKE ?)"];
     const params = [like, like, like];
     if (project !== null) {
       where.push("project = ?");
@@ -255,7 +261,7 @@ export function createSqliteBackend({ dataDir = DEFAULT_DATA_DIR } = {}) {
 
   // Per-project rollup for the dashboard / handoff_stats tool.
   function stats({ project = null } = {}) {
-    const where = project !== null ? "WHERE project = ?" : "";
+    const where = project !== null ? "WHERE deleted_at IS NULL AND project = ?" : "WHERE deleted_at IS NULL";
     const params = project !== null ? [project] : [];
     return db
       .prepare(
@@ -273,11 +279,44 @@ export function createSqliteBackend({ dataDir = DEFAULT_DATA_DIR } = {}) {
       .all(...params);
   }
 
+  // Soft delete: move to the recycle bin (set deleted_at) instead of removing the
+  // row, so an accidental delete is recoverable with restoreHandoff. Only affects
+  // rows that are currently live.
   function deleteHandoff(id) {
     const h = getHandoff(id);
-    const ok = db.prepare(`DELETE FROM handoffs WHERE id = ?`).run(id).changes > 0;
+    const ok = db.prepare(`UPDATE handoffs SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`).run(now(), id).changes > 0;
     if (ok) logActivity({ action: "handoff.delete", project: h?.project ?? null, target_id: id, detail: h?.task ?? null });
     return ok;
+  }
+
+  // Bring a soft-deleted handoff back out of the recycle bin.
+  function restoreHandoff(id) {
+    const h = getHandoffRaw(id);
+    const ok = db.prepare(`UPDATE handoffs SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL`).run(id).changes > 0;
+    if (ok) logActivity({ action: "handoff.restore", project: h?.project ?? null, target_id: id, detail: h?.task ?? null });
+    return ok;
+  }
+
+  // List what's in the recycle bin (most recently deleted first).
+  function listTrash({ limit = 50 } = {}) {
+    return db
+      .prepare(`SELECT ${LIST_COLS}, deleted_at FROM handoffs WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC LIMIT ?`)
+      .all(limit);
+  }
+
+  // Permanently remove ONE handoff from the recycle bin (irreversible).
+  function purgeHandoff(id) {
+    const h = getHandoffRaw(id);
+    const ok = db.prepare(`DELETE FROM handoffs WHERE id = ? AND deleted_at IS NOT NULL`).run(id).changes > 0;
+    if (ok) logActivity({ action: "handoff.purge", project: h?.project ?? null, target_id: id, detail: h?.task ?? null });
+    return ok;
+  }
+
+  // Permanently empty the recycle bin (irreversible). Returns how many were removed.
+  function emptyTrash() {
+    const n = db.prepare(`DELETE FROM handoffs WHERE deleted_at IS NOT NULL`).run().changes;
+    if (n > 0) logActivity({ action: "trash.empty", detail: String(n) });
+    return n;
   }
 
   function clearHandoffs({ project = null } = {}) {
@@ -363,9 +402,30 @@ export function createSqliteBackend({ dataDir = DEFAULT_DATA_DIR } = {}) {
   function latestUnreadHandoff(project) {
     return (
       db
-        .prepare(`SELECT * FROM handoffs WHERE project = ? AND read_at IS NULL ORDER BY id DESC LIMIT 1`)
+        .prepare(`SELECT * FROM handoffs WHERE project = ? AND read_at IS NULL AND deleted_at IS NULL ORDER BY id DESC LIMIT 1`)
         .get(project) || null
     );
+  }
+
+  // --- Backup / export (data safety) ---
+
+  // Flush the WAL into the main DB file so a plain file copy is a complete,
+  // consistent snapshot (otherwise recent writes live only in synapse.db-wal).
+  function checkpoint() {
+    try { db.exec("PRAGMA wal_checkpoint(TRUNCATE);"); } catch { /* best-effort */ }
+  }
+
+  // A portable, schema-independent dump of everything (incl. recycle-bin rows),
+  // so the data survives even if the SQLite file or schema later changes.
+  function exportAll() {
+    return {
+      exported_at: now(),
+      db_path: dbPath,
+      handoffs: db.prepare(`SELECT * FROM handoffs ORDER BY id`).all(),
+      memory: db.prepare(`SELECT * FROM memory ORDER BY project, key`).all(),
+      activity: db.prepare(`SELECT * FROM activity ORDER BY id`).all(),
+      settings: db.prepare(`SELECT * FROM settings ORDER BY key`).all(),
+    };
   }
 
   function markRead(id, by = "auto-pickup") {
@@ -381,8 +441,10 @@ export function createSqliteBackend({ dataDir = DEFAULT_DATA_DIR } = {}) {
     close: () => db.close(),
     writeHandoff, readHandoff, getHandoff, listHandoffs, searchHandoffs, getThread,
     setHandoffStatus, stats, deleteHandoff, clearHandoffs,
+    restoreHandoff, listTrash, purgeHandoff, emptyTrash,
     remember, recall, searchMemory,
     getActivity,
+    checkpoint, exportAll,
     getSetting, setSetting, isAutoPickupOn, setAutoPickup, latestUnreadHandoff, markRead,
   };
 }
@@ -402,10 +464,16 @@ export const setHandoffStatus = _default.setHandoffStatus;
 export const stats = _default.stats;
 export const deleteHandoff = _default.deleteHandoff;
 export const clearHandoffs = _default.clearHandoffs;
+export const restoreHandoff = _default.restoreHandoff;
+export const listTrash = _default.listTrash;
+export const purgeHandoff = _default.purgeHandoff;
+export const emptyTrash = _default.emptyTrash;
 export const remember = _default.remember;
 export const recall = _default.recall;
 export const searchMemory = _default.searchMemory;
 export const getActivity = _default.getActivity;
+export const checkpoint = _default.checkpoint;
+export const exportAll = _default.exportAll;
 export const getSetting = _default.getSetting;
 export const setSetting = _default.setSetting;
 export const isAutoPickupOn = _default.isAutoPickupOn;

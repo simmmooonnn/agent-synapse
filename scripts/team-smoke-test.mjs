@@ -93,6 +93,26 @@ check(feed.json.activity.some((a) => a.action === "handoff.status" && a.detail =
 const feed2 = await api("/activity/list", {}, { token: "tok_bob", workspace: "team2" });
 check(Array.isArray(feed2.json.activity) && feed2.json.activity.length === 0, "team2's activity feed is isolated");
 
+console.log("\n--- recycle bin: soft delete, restore, purge, isolation ---");
+const tmp = await api("/handoffs/write", { task: "trash me", summary: "temp", project: "projA" }, { token: "tok_alice", workspace: "team1" });
+const tmpId = tmp.json.id;
+await api("/handoffs/delete", { id: tmpId }, { token: "tok_alice", workspace: "team1" });
+const liveAfterDel = await api("/handoffs/list", { project: "projA" }, { token: "tok_bob", workspace: "team1" });
+check(!liveAfterDel.json.handoffs.some((h) => h.id === tmpId), "soft-deleted handoff leaves the live list");
+const bin = await api("/handoffs/trash", {}, { token: "tok_bob", workspace: "team1" });
+check(bin.json.handoffs.some((h) => h.id === tmpId), "soft-deleted handoff shows in the team's recycle bin");
+const bin2 = await api("/handoffs/trash", {}, { token: "tok_bob", workspace: "team2" });
+check(Array.isArray(bin2.json.handoffs) && bin2.json.handoffs.length === 0, "team2's recycle bin is isolated");
+const restored = await api("/handoffs/restore", { id: tmpId }, { token: "tok_bob", workspace: "team1" });
+check(restored.json.ok === true, "restore brings the handoff back");
+const liveAfterRestore = await api("/handoffs/list", { project: "projA" }, { token: "tok_bob", workspace: "team1" });
+check(liveAfterRestore.json.handoffs.some((h) => h.id === tmpId), "restored handoff is live again");
+await api("/handoffs/delete", { id: tmpId }, { token: "tok_alice", workspace: "team1" });
+const purged = await api("/handoffs/purge", { id: tmpId }, { token: "tok_alice", workspace: "team1" });
+check(purged.json.ok === true, "purge permanently removes it from the bin");
+const binAfterPurge = await api("/handoffs/trash", {}, { token: "tok_bob", workspace: "team1" });
+check(!binAfterPurge.json.handoffs.some((h) => h.id === tmpId), "purged handoff is gone from the bin");
+
 console.log("\n--- auth is enforced ---");
 const badTok = await api("/handoffs/list", {}, { token: "nope", workspace: "team1" });
 check(badTok.status === 401, "bad token -> 401");

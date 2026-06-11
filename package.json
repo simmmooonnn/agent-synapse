@@ -14,6 +14,7 @@
     "connect": "node scripts/install.mjs",
     "config": "node scripts/print-config.mjs",
     "clear": "node scripts/clear-handoffs.mjs",
+    "backup": "node scripts/backup.mjs",
     "autopickup": "node scripts/autopickup.mjs",
     "test": "node scripts/smoke-test.mjs && node scripts/team-smoke-test.mjs",
     "test:team": "node scripts/team-smoke-test.mjs"

@@ -54,6 +54,9 @@ const ACTION_VERB = {
   "handoff.read": "read handoff",
   "handoff.status": "set status",
   "handoff.delete": "deleted handoff",
+  "handoff.restore": "restored handoff",
+  "handoff.purge": "purged handoff",
+  "trash.empty": "emptied the trash",
   "memory.set": "set memory",
 };
 
@@ -281,15 +284,53 @@ export function registerTools(server) {
       title: "Delete Handoff",
       description:
         "Delete a specific handoff by its #id (get ids from list_handoffs). Use " +
-        "when a handoff is done with, was wrong, or is just clutter. Deletes one " +
-        "handoff at a time on purpose, so nothing is removed by accident.",
+        "when a handoff is done with, was wrong, or is just clutter. This is a " +
+        "SOFT delete: the handoff goes to the recycle bin and can be brought back " +
+        "with restore_handoff, so nothing is lost by accident. Deletes one handoff " +
+        "at a time on purpose.",
       inputSchema: {
-        id: z.number().int().positive().describe("The #id of the handoff to delete."),
+        id: z.number().int().positive().describe("The #id of the handoff to delete (move to the recycle bin)."),
       },
     },
     async ({ id }) => {
       const ok = await store.deleteHandoff(id);
-      return text(ok ? `Deleted handoff #${id}.` : `No handoff with id ${id}.`);
+      return text(ok ? `Moved handoff #${id} to the recycle bin. Restore it with restore_handoff if needed.` : `No handoff with id ${id}.`);
+    }
+  );
+
+  server.registerTool(
+    "restore_handoff",
+    {
+      title: "Restore Handoff",
+      description:
+        "Bring a soft-deleted handoff back out of the recycle bin by its #id (get " +
+        "ids from list_trash). Use this to undo an accidental delete_handoff.",
+      inputSchema: {
+        id: z.number().int().positive().describe("The #id of the handoff to restore from the recycle bin."),
+      },
+    },
+    async ({ id }) => {
+      const ok = await store.restoreHandoff(id);
+      return text(ok ? `Restored handoff #${id} from the recycle bin.` : `No deleted handoff with id ${id} to restore.`);
+    }
+  );
+
+  server.registerTool(
+    "list_trash",
+    {
+      title: "List Recycle Bin",
+      description:
+        "List handoffs currently in the recycle bin (soft-deleted, most recently " +
+        "deleted first). Each line starts with its #id, which you can pass to " +
+        "restore_handoff to bring it back.",
+      inputSchema: {
+        limit: z.number().int().positive().max(100).optional().describe("How many to return (default 30)."),
+      },
+    },
+    async ({ limit }) => {
+      const rows = await store.listTrash({ limit: limit ?? 30 });
+      if (!rows || rows.length === 0) return text("The recycle bin is empty.");
+      return text(rows.map((h) => formatHandoffLine(h, { showProject: true })).join("\n"));
     }
   );
 

@@ -43,7 +43,12 @@
       .app-header .mark { color: #fff; display: flex; }
       .app-header h1 { font-size: 15px; font-weight: 600; margin: 0; }
       .app-header .sub { color: #9da7b3; font-size: 13px; font-weight: 400; }
-      .app-header .right { margin-left: auto; }
+      .app-header .right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+      .backup-btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px;
+        font: inherit; font-size: 12.5px; color: #d0d7de; background: #2a2f36; border: 1px solid #424a53;
+        border-radius: 6px; cursor: pointer; }
+      .backup-btn:hover:not(:disabled) { background: #32383f; border-color: #586069; color: #fff; }
+      .backup-btn:disabled { opacity: .7; cursor: default; }
 
       /* primer toggle for auto-pickup */
       .toggle { display: inline-flex; align-items: center; gap: 8px; color: #d0d7de; font-size: 12.5px;
@@ -91,6 +96,7 @@
       .tab.active { color: var(--fg); font-weight: 600; }
       .tab .ti { display: flex; }
       .tab.t-open .ti { color: var(--open); } .tab.t-acked .ti { color: var(--acked); } .tab.t-done .ti { color: var(--done); }
+      .tab.t-trash .ti { color: var(--faint); }
 
       /* handoff row */
       .state-icon { flex: none; margin-top: 1px; }
@@ -133,6 +139,17 @@
       .btn.on.b-done { background: var(--done-bg); color: var(--done); border-color: rgba(130,80,223,.4); }
       .del { display: flex; background: none; border: none; color: var(--faint); cursor: pointer; padding: 4px; border-radius: 6px; }
       .del:hover { color: #cf222e; background: rgba(207,34,46,.08); }
+
+      /* recycle bin */
+      .trash-bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; color: var(--muted);
+        font-size: 12.5px; background: var(--canvas); border-bottom: 1px solid var(--border-muted); }
+      .trash-bar .btn-danger { margin-left: auto; }
+      .btn.b-restore { display: inline-flex; align-items: center; gap: 5px; border-radius: 6px 0 0 6px; }
+      .btn.b-restore:hover { background: var(--open-bg); color: var(--open); border-color: rgba(26,127,55,.4); }
+      .btn.b-purge { border-left-width: 0; border-radius: 0 6px 6px 0; }
+      .btn.b-purge:hover { background: rgba(207,34,46,.08); color: #cf222e; border-color: rgba(207,34,46,.4); }
+      .btn.btn-danger { border-radius: 6px; }
+      .btn.btn-danger:hover { background: rgba(207,34,46,.08); color: #cf222e; border-color: rgba(207,34,46,.4); }
 
       /* projects stat list */
       .proj-row { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border-muted); font-size: 13px; }
@@ -178,6 +195,10 @@
         <h1>agent-synapse</h1>
         <span class="sub">shared memory between your agents</span>
         <span class="right">
+          <button class="backup-btn" title="Snapshot the database + JSON export to data/backups/" onclick="doBackup(this)">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Zm5.78-9.84 2.1 2.1a.75.75 0 1 1-1.06 1.06L8.75 6.56v3.69a.75.75 0 0 1-1.5 0V6.56L5.43 7.32a.75.75 0 0 1-1.06-1.06l2.1-2.1a1.5 1.5 0 0 1 2.06 0Z"/></svg>
+            Backup
+          </button>
           <label class="toggle" title="Inject the latest unread handoff into new sessions">
             <input type="checkbox" id="autopickup" onchange="setAuto(this.checked)" />
             <span class="track"></span>
@@ -231,7 +252,7 @@
       const projName = (p) => (p ? p.split(/[\\/]/).pop() : "(none)");
       const when = (iso) => (iso || "").replace("T", " ").replace(/\.\d+Z$/, "").slice(0, 16);
 
-      let DATA = { handoffs: [], memory: [], stats: [], activity: [] };
+      let DATA = { handoffs: [], memory: [], stats: [], activity: [], trash: [] };
       let statusFilter = "all";
 
       // activity action -> [dot class, human verb]
@@ -241,6 +262,9 @@
         "handoff.read": ["read", "read handoff"],
         "handoff.status": ["status", "set status of"],
         "handoff.delete": ["delete", "deleted handoff"],
+        "handoff.restore": ["read", "restored handoff"],
+        "handoff.purge": ["delete", "purged handoff"],
+        "trash.empty": ["delete", "emptied the trash"],
         "memory.set": ["memory", "set memory"],
       };
 
@@ -250,6 +274,8 @@
         acked: '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"/></svg>',
         done: '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M11.28 6.78a.75.75 0 0 0-1.06-1.06L7 8.94 5.78 7.72a.75.75 0 1 0-1.06 1.06l1.75 1.75a.75.75 0 0 0 1.06 0l3.75-3.75Z"/><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"/></svg>',
         chev: '<span class="chev"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"/></svg></span>',
+        trash: '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M11 1.75V3h2.25a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75ZM4.5 5.5l.5 8a.75.75 0 0 0 .75.7h4.5a.75.75 0 0 0 .75-.7l.5-8a.75.75 0 1 0-1.5-.1l-.46 7.35H6.46L6 5.4a.75.75 0 1 0-1.5.1ZM6.5 1.75V3h3V1.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25Z"/></svg>',
+        restore: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2.5a5.487 5.487 0 0 0-4.131 1.869l1.204 1.204A.25.25 0 0 1 4.896 6H1.25A.25.25 0 0 1 1 5.75V2.104a.25.25 0 0 1 .427-.177l1.38 1.38A6.997 6.997 0 0 1 8 1a7 7 0 1 1-6.106 10.41.75.75 0 1 1 1.308-.733A5.5 5.5 0 1 0 8 2.5Z"/></svg>',
       };
 
       function renderTabs() {
@@ -259,9 +285,13 @@
         const tab = (key, label) =>
           '<button class="tab t-' + key + (statusFilter === key ? " active" : "") + '" onclick="setFilter(\'' + key + '\')">' +
           '<span class="ti">' + ICON[key] + "</span>" + c[key] + " " + label + "</button>";
+        const trashN = (DATA.trash || []).length;
+        const trashTab =
+          '<button class="tab t-trash' + (statusFilter === "trash" ? " active" : "") + '" onclick="setFilter(\'trash\')">' +
+          '<span class="ti">' + ICON.trash + "</span>" + trashN + " Trash</button>";
         document.getElementById("htabs").innerHTML =
           '<button class="tab' + (statusFilter === "all" ? " active" : "") + '" onclick="setFilter(\'all\')">All</button>' +
-          tab("open", "Open") + tab("acked", "Acked") + tab("done", "Done");
+          tab("open", "Open") + tab("acked", "Acked") + tab("done", "Done") + trashTab;
       }
 
       function setFilter(f) { statusFilter = statusFilter === f && f !== "all" ? "all" : f; render(); }
@@ -309,7 +339,35 @@
         ).join("") + "</div>";
       }
 
+      function renderTrash() {
+        const q = document.getElementById("hsearch").value.trim().toLowerCase();
+        const items = (DATA.trash || []).filter((h) =>
+          !q || (h.task + " " + h.summary + " " + (h.context || "")).toLowerCase().includes(q));
+        document.getElementById("hcount").textContent = items.length + (items.length === 1 ? " in bin" : " in bin");
+        const el = document.getElementById("handoffs");
+        if (!items.length) { el.innerHTML = '<div class="empty">' + (q ? "No matching deleted handoffs." : "The recycle bin is empty.") + "</div>"; return; }
+        const head = '<div class="trash-bar">Deleted handoffs can be restored, or removed permanently.' +
+          '<button class="btn btn-danger" onclick="emptyTrash()">Empty trash</button></div>';
+        el.innerHTML = head + items.map((h) =>
+          '<div class="Box-row">' +
+            '<span class="state-icon" style="color:var(--faint)" title="deleted">' + ICON.trash + "</span>" +
+            '<div class="row-main">' +
+              '<div class="row-title"><span class="t">' + esc(h.task) + "</span>" +
+                '<span class="Label proj">' + esc(projName(h.project)) + "</span></div>" +
+              '<div class="row-meta"><span class="id">#' + h.id + "</span> · deleted " + esc(when(h.deleted_at)) +
+                (h.from_agent ? " · by " + esc(h.from_agent) : "") + "</div>" +
+              '<div class="row-summary">' + esc(h.summary) + "</div>" +
+              '<div class="btn-group">' +
+                '<button class="btn b-restore" onclick="restore(' + h.id + ')">' + ICON.restore + " Restore</button>" +
+                '<button class="btn b-purge" onclick="purge(' + h.id + ')">Delete forever</button>' +
+              "</div>" +
+            "</div>" +
+          "</div>"
+        ).join("");
+      }
+
       function renderHandoffs() {
+        if (statusFilter === "trash") return renderTrash();
         const q = document.getElementById("hsearch").value.trim().toLowerCase();
         const items = DATA.handoffs.filter((h) =>
           (statusFilter === "all" || (h.status || "open") === statusFilter) &&
@@ -372,15 +430,39 @@
         tick();
       }
       async function del(id) {
-        if (!confirm("Delete handoff #" + id + "?")) return;
+        if (!confirm("Move handoff #" + id + " to the recycle bin? You can restore it from the Trash tab.")) return;
         await fetch("/api/handoff/" + id, { method: "DELETE" });
         tick();
+      }
+      async function restore(id) {
+        await fetch("/api/handoff/" + id + "/restore", { method: "POST" });
+        tick();
+      }
+      async function purge(id) {
+        if (!confirm("Permanently delete handoff #" + id + "? This cannot be undone.")) return;
+        await fetch("/api/handoff/" + id + "/purge", { method: "POST" });
+        tick();
+      }
+      async function emptyTrash() {
+        if (!confirm("Permanently delete everything in the recycle bin? This cannot be undone.")) return;
+        await fetch("/api/trash/empty", { method: "POST" });
+        tick();
+      }
+      async function doBackup(btn) {
+        btn.disabled = true;
+        const orig = btn.textContent;
+        try {
+          const r = await fetch("/api/backup", { method: "POST" });
+          const d = await r.json();
+          btn.textContent = d.ok ? "✓ backed up" : "✗ failed";
+        } catch { btn.textContent = "✗ failed"; }
+        setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2400);
       }
       async function tick() {
         try {
           const r = await fetch("/api/data");
           const d = await r.json();
-          DATA = { handoffs: d.handoffs || [], memory: d.memory || [], stats: d.stats || [], activity: d.activity || [] };
+          DATA = { handoffs: d.handoffs || [], memory: d.memory || [], stats: d.stats || [], activity: d.activity || [], trash: d.trash || [] };
           render();
           const cb = document.getElementById("autopickup");
           if (cb && document.activeElement !== cb) { cb.checked = !!d.auto_pickup; document.getElementById("autostate").textContent = d.auto_pickup ? "on" : "off"; }

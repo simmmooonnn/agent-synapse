@@ -22,6 +22,42 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "POST" && req.url.match(/^\/api\/handoff\/\d+\/restore$/)) {
+    const id = parseInt(req.url.split("/")[3], 10);
+    const ok = Number.isInteger(id) ? await store.restoreHandoff(id) : false;
+    res.writeHead(ok ? 200 : 404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok }));
+    return;
+  }
+
+  if (req.method === "POST" && req.url.match(/^\/api\/handoff\/\d+\/purge$/)) {
+    const id = parseInt(req.url.split("/")[3], 10);
+    const ok = Number.isInteger(id) ? await store.purgeHandoff(id) : false;
+    res.writeHead(ok ? 200 : 404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok }));
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/trash/empty") {
+    const deleted = await store.emptyTrash();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, deleted }));
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/backup") {
+    try {
+      const { backup } = await import("../scripts/backup.mjs");
+      const { dbDest, jsonDest } = backup();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, dbDest, jsonDest }));
+    } catch (e) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
   if (req.method === "POST" && req.url.match(/^\/api\/handoff\/\d+\/status$/)) {
     const id = parseInt(req.url.split("/")[3], 10);
     let body = "";
@@ -64,6 +100,7 @@ const server = createServer(async (req, res) => {
       memory: await store.recall({ all_projects: true }),
       stats: await store.stats({}),
       activity: await store.getActivity({ limit: 50 }),
+      trash: await store.listTrash({ limit: 100 }),
       auto_pickup: (await store.getSetting("auto_pickup")) === "on",
     };
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
